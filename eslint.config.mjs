@@ -6,8 +6,13 @@ export default tseslint.config(
       "**/dist/**",
       "**/coverage/**",
       "**/node_modules/**",
-      "**/*.cjs",
     ],
   },
   ...tseslint.configs.recommended,
+  {
+    files: ["**/*.cjs"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
 );
