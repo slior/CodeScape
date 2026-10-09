@@ -7,6 +7,7 @@ export {
   portalId,
   symbolBoxId,
 } from "./ids.js";
+export { serializeWorld } from "./serialize.js";
 export type {
   CityEdge,
   CityNode,
