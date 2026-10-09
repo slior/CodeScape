@@ -1,0 +1,9 @@
+{
+  "name": "@sw3d/viewer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@sw3d/model": "*"
+  }
+}
