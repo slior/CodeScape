@@ -6,7 +6,10 @@
     "sharedGlobals": ["{workspaceRoot}/tsconfig.base.json"]
   },
   "targetDefaults": {
-    "typecheck": { "cache": true },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "cache": true
+    },
     "lint": { "cache": true },
     "test": { "cache": true },
     "build": {

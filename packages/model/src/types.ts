@@ -99,7 +99,7 @@ export interface CityNode {
   name: string;
   parentId: string | null;
   path: string;
-  unitKind?: Node["unitKind"];
+  unitKind?: "file" | "class" | "interface" | "type" | "enum";
   packageName?: string;
   mass: number;
 }
