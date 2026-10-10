@@ -27,23 +27,23 @@ describe("walkSource", () => {
     withRoot((root) => {
       write(root, "b.ts", "export const b = 1;\n");
       write(root, "a.ts", "export const a = 1;\n");
-      write(root, "M/z.ts", "export const z = 1;\n");
-      write(root, "m/a.d.ts", "export type A = string;\n");
-      write(root, "m/a.js", "export const js = 1;\n");
-      write(root, "m/a.ts", "export const a = 1;\n");
-      write(root, "m/a.tsx", "export const x = 1;\n");
-      write(root, "m/c.ts", "export const c = 1;\n");
-      write(root, "m/readme.md", "# readme\n");
+      write(root, "f/z.ts", "export const z = 1;\n");
+      write(root, "é/a.d.ts", "export type A = string;\n");
+      write(root, "é/a.js", "export const js = 1;\n");
+      write(root, "é/a.ts", "export const a = 1;\n");
+      write(root, "é/a.tsx", "export const x = 1;\n");
+      write(root, "é/c.ts", "export const c = 1;\n");
+      write(root, "é/readme.md", "# readme\n");
       const result = walkSource(root, [], [rootPackage]);
       expect(result.included.map((file) => file.path)).toEqual([
-        "M/z.ts",
         "a.ts",
         "b.ts",
-        "m/a.ts",
-        "m/a.tsx",
-        "m/c.ts",
+        "f/z.ts",
+        "é/a.ts",
+        "é/a.tsx",
+        "é/c.ts",
       ]);
-      expect(result.included[1]?.realPath).toBe(fs.realpathSync(path.join(root, "a.ts")));
+      expect(result.included[0]?.realPath).toBe(fs.realpathSync(path.join(root, "a.ts")));
       expect(result.unreadable).toEqual([]);
       expect(result.outsideSymlinks).toEqual([]);
     });
