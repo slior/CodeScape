@@ -232,4 +232,41 @@ describe("walkSource", () => {
       expect(result.outsideSymlinks).toEqual([]);
     });
   });
+
+  const isRoot = process.getuid?.() === 0;
+  const itUnlessRoot = isRoot ? it.skip : it;
+
+  itUnlessRoot("reports an unreadable directory inside a package and does not enter it", () => {
+    withRoot((root) => {
+      write(root, "packages/core/src/ok.ts", "export const ok = 1;\n");
+      write(root, "packages/core/locked/hidden.ts", "export const h = 1;\n");
+      const locked = path.join(root, "packages", "core", "locked");
+      fs.chmodSync(locked, 0o000);
+      try {
+        const result = walkSource(root, [], [{ path: "packages/core", name: "core" }]);
+        expect(result.included.map((file) => file.path)).toEqual(["packages/core/src/ok.ts"]);
+        expect(result.unreadable).toEqual([
+          { path: "packages/core/locked", message: "unreadable" },
+        ]);
+      } finally {
+        fs.chmodSync(locked, 0o755);
+      }
+    });
+  });
+
+  itUnlessRoot("skips an unreadable directory outside every package without a warning", () => {
+    withRoot((root) => {
+      write(root, "packages/core/src/ok.ts", "export const ok = 1;\n");
+      write(root, "tools/hidden.ts", "export const h = 1;\n");
+      const tools = path.join(root, "tools");
+      fs.chmodSync(tools, 0o000);
+      try {
+        const result = walkSource(root, [], [{ path: "packages/core", name: "core" }]);
+        expect(result.included.map((file) => file.path)).toEqual(["packages/core/src/ok.ts"]);
+        expect(result.unreadable).toEqual([]);
+      } finally {
+        fs.chmodSync(tools, 0o755);
+      }
+    });
+  });
 });

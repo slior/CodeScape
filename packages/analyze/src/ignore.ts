@@ -63,6 +63,10 @@ function patternMatches(body: string, filePath: string, isDirectory: boolean): b
   if (directoryOnly && !isDirectory) return false;
   const glob = directoryOnly ? body.slice(0, -1) : body;
   if (glob.length === 0) return false;
+  if (glob.startsWith("/")) {
+    const anchored = glob.slice(1);
+    return anchored.length > 0 && matchGlob(anchored, filePath);
+  }
   if (!glob.includes("/")) {
     for (const part of filePath.split("/")) {
       if (matchGlob(glob, part)) return true;

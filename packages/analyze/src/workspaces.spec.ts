@@ -210,6 +210,25 @@ describe("loadWorkspaces", () => {
       });
     });
   });
+  it("accepts a ./ prefixed workspace glob and declares paths without it", () => {
+    withRoot((root) => {
+      write(root, "package.json", JSON.stringify({ workspaces: ["./packages/*"] }));
+      write(root, "packages/a/package.json", JSON.stringify({ name: "pkg-a" }));
+      expect(loadWorkspaces(root)).toEqual({
+        packages: [{ path: "packages/a", name: "pkg-a" }],
+      });
+    });
+  });
+
+  it("returns fatal for a workspace pattern that escapes the root", () => {
+    withRoot((root) => {
+      write(root, "package.json", JSON.stringify({ workspaces: ["../outside/*"] }));
+      expect(loadWorkspaces(root)).toEqual({
+        packages: [],
+        fatal: { path: "package.json", message: "invalid workspaces" },
+      });
+    });
+  });
 });
 
 describe("selectWorkspacePackages", () => {

@@ -59,7 +59,15 @@ export function loadWorkspaces(root: string): { packages: WorkspacePackage[]; fa
   }
   const patterns = readWorkspacePatterns(parsed["workspaces"]);
   if ("fatal" in patterns) return { packages: [], fatal: patterns.fatal };
-  const declaredPaths = patterns.patterns.flatMap((pattern) => expandPattern(root, pattern));
+  const normalized: string[][] = [];
+  for (const pattern of patterns.patterns) {
+    const segments = normalizePatternSegments(pattern);
+    if (segments === undefined) {
+      return { packages: [], fatal: { path: "package.json", message: "invalid workspaces" } };
+    }
+    normalized.push(segments);
+  }
+  const declaredPaths = normalized.flatMap((segments) => expandPattern(root, segments));
   declaredPaths.sort(compareUtf8);
   const hits: Hit[] = [];
   for (const declaredPath of declaredPaths) {
@@ -118,8 +126,25 @@ function readPackageName(
   return { name: parsed["name"] };
 }
 
-function expandPattern(root: string, pattern: string): string[] {
-  const segments = pattern.split("/").filter((segment) => segment.length > 0);
+/**
+ * Splits a workspace pattern into segments, dropping `.` and resolving `..`
+ * lexically. Returns undefined when a `..` would leave the root.
+ */
+function normalizePatternSegments(pattern: string): string[] | undefined {
+  const segments: string[] = [];
+  for (const segment of pattern.split("/")) {
+    if (segment.length === 0 || segment === ".") continue;
+    if (segment === "..") {
+      if (segments.length === 0) return undefined;
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return segments;
+}
+
+function expandPattern(root: string, segments: readonly string[]): string[] {
   const found: string[] = [];
   const stack = new Set<string>();
 

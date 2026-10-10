@@ -33,9 +33,27 @@ export function walkSource(
   const seen = new Set<string>([rootReal]);
   const stack = new Set<string>([rootReal]);
 
+  const warnUnreadableDirectory = (absoluteDir: string): void => {
+    let dirReal: string;
+    try {
+      dirReal = fs.realpathSync(absoluteDir);
+    } catch {
+      return;
+    }
+    const owner = owningPackage(dirReal, packageRoots);
+    if (!owner) return;
+    result.unreadable.push({ path: storedPath(dirReal, owner), message: "unreadable" });
+  };
+
   const visit = (traversalDir: string): void => {
     const absoluteDir = traversalDir === "" ? root : path.join(root, ...traversalDir.split("/"));
-    const entries = fs.readdirSync(absoluteDir, { withFileTypes: true });
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(absoluteDir, { withFileTypes: true });
+    } catch {
+      warnUnreadableDirectory(absoluteDir);
+      return;
+    }
     entries.sort((a, b) => compareUtf8(a.name, b.name));
     for (const entry of entries) {
       const traversal = traversalDir === "" ? entry.name : `${traversalDir}/${entry.name}`;

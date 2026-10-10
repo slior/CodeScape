@@ -151,4 +151,11 @@ describe("isIgnored", () => {
     expect(isIgnored("src/generated/a.ts", "src/generated/a.ts", ["**/generated/**"], false)).toBe(true);
     expect(isIgnored("generated/a.ts", "generated/a.ts", ["**/generated/**"], false)).toBe(true);
   });
+
+  it("anchors a leading-slash pattern to the root", () => {
+    expect(isIgnored("dist", "dist", ["/dist"], true)).toBe(true);
+    expect(isIgnored("dist/a.ts", "dist/a.ts", ["/dist"], false)).toBe(true);
+    expect(isIgnored("pkg/dist", "pkg/dist", ["/dist"], true)).toBe(false);
+    expect(isIgnored("pkg/dist/a.ts", "pkg/dist/a.ts", ["/dist"], false)).toBe(false);
+  });
 });
