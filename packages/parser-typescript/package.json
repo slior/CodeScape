@@ -10,6 +10,7 @@
     }
   },
   "dependencies": {
-    "@sw3d/model": "*"
+    "@sw3d/model": "*",
+    "typescript": "5.9.3"
   }
 }
