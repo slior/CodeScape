@@ -1,8 +1,18 @@
-import { buildingId, cityId, districtId, fileBoxId, symbolBoxId } from "@sw3d/model";
+import {
+  buildingId,
+  cityId,
+  districtId,
+  edgeId,
+  fileBoxId,
+  portalId,
+  symbolBoxId,
+} from "@sw3d/model";
 import type {
   CityStructure,
   CodeGraph,
   CodeUnit,
+  Edge,
+  ImportFact,
   Node,
   Warning,
   WorkspacePackage,
@@ -16,6 +26,7 @@ export class EmptySourceError extends Error {
 }
 
 type CityNode = Omit<Node, "pose">;
+type CityEdge = Omit<Edge, "points">;
 
 export function compose(
   graph: CodeGraph,
@@ -31,6 +42,7 @@ export function compose(
 
   const unitsByFile = groupUnits(graph.units);
   const nodes: CityNode[] = [];
+  const anchorByFile = new Map<string, string>();
   const city: CityNode = {
     id: cityId(graph.name),
     kind: "city",
@@ -74,14 +86,19 @@ export function compose(
         }
         parentId = id;
       }
-      addFileNodes(nodes, filePath, parentId, unitsByFile.get(filePath) ?? []);
+      anchorByFile.set(
+        filePath,
+        addFileNodes(nodes, filePath, parentId, unitsByFile.get(filePath) ?? []),
+      );
     }
   }
 
+  const edges = buildEdges(graph.imports, nodes, anchorByFile, unreadableFiles(graph.warnings));
   assignMass(nodes);
   nodes.sort(comparePathThenId);
+  edges.sort(compareEdges);
   const warnings = [...graph.warnings].sort(compareWarnings);
-  return { version: 1, name: graph.name, nodes, edges: [], warnings };
+  return { version: 1, name: graph.name, nodes, edges, warnings };
 }
 
 function addFileNodes(
@@ -89,7 +106,7 @@ function addFileNodes(
   filePath: string,
   parentId: string,
   units: readonly CodeUnit[],
-): void {
+): string {
   const only = units.length === 1 ? units[0] : undefined;
   if (units.length >= 2) {
     const id = buildingId(filePath);
@@ -103,14 +120,15 @@ function addFileNodes(
     });
     const ordered = [...units].sort((left, right) => compareUtf8(left.name, right.name));
     for (const unit of ordered) nodes.push(symbolBox(filePath, unit, id));
-    return;
+    return id;
   }
   if (only) {
     nodes.push(symbolBox(filePath, only, parentId));
-    return;
+    return symbolBoxId(filePath, only.name);
   }
+  const id = fileBoxId(filePath);
   nodes.push({
-    id: fileBoxId(filePath),
+    id,
     kind: "box",
     name: basename(filePath),
     parentId,
@@ -118,6 +136,7 @@ function addFileNodes(
     unitKind: "file",
     mass: 1,
   });
+  return id;
 }
 
 function symbolBox(filePath: string, unit: CodeUnit, parentId: string): CityNode {
@@ -130,6 +149,117 @@ function symbolBox(filePath: string, unit: CodeUnit, parentId: string): CityNode
     unitKind: unit.kind,
     mass: 1,
   };
+}
+
+function buildEdges(
+  imports: readonly ImportFact[],
+  nodes: CityNode[],
+  anchorByFile: ReadonlyMap<string, string>,
+  unreadable: ReadonlySet<string>,
+): CityEdge[] {
+  const parentById = new Map<string, string | null>();
+  for (const node of nodes) parentById.set(node.id, node.parentId);
+  const containers = nodes.filter(
+    (node) => node.kind === "city" || node.kind === "district" || node.kind === "building",
+  );
+  const edges: CityEdge[] = [];
+  const seenPortals = new Set<string>();
+
+  for (const container of containers) {
+    const roadWeights = new Map<string, { from: string; to: string; weight: number }>();
+    const portalWeights = new Map<string, { from: string; name: string; weight: number }>();
+
+    for (const fact of imports) {
+      if (unreadable.has(fact.fromFile)) continue;
+      const anchor = anchorByFile.get(fact.fromFile);
+      if (anchor === undefined) continue;
+      const fromChild = directChild(container.id, anchor, parentById);
+      if (fromChild === undefined) continue;
+
+      if (fact.target.kind === "external") {
+        const key = `${fromChild}\0${fact.target.name}`;
+        const existing = portalWeights.get(key);
+        if (existing) existing.weight += 1;
+        else portalWeights.set(key, { from: fromChild, name: fact.target.name, weight: 1 });
+        continue;
+      }
+
+      const targetAnchor = anchorByFile.get(fact.target.file);
+      if (targetAnchor === undefined) continue;
+      const toChild = directChild(container.id, targetAnchor, parentById);
+      if (toChild === undefined || toChild === fromChild) continue;
+      const key = `${fromChild}\0${toChild}`;
+      const existing = roadWeights.get(key);
+      if (existing) existing.weight += 1;
+      else roadWeights.set(key, { from: fromChild, to: toChild, weight: 1 });
+    }
+
+    for (const road of roadWeights.values()) {
+      edges.push({
+        id: edgeId(container.id, road.from, road.to),
+        kind: "road",
+        parentId: container.id,
+        from: road.from,
+        to: road.to,
+        weight: road.weight,
+      });
+    }
+
+    const names = new Set<string>();
+    for (const portal of portalWeights.values()) names.add(portal.name);
+    for (const name of names) {
+      const id = portalId(container.id, name);
+      if (seenPortals.has(id)) continue;
+      seenPortals.add(id);
+      nodes.push({
+        id,
+        kind: "portal",
+        name,
+        parentId: container.id,
+        path: "",
+        mass: 0,
+      });
+    }
+    for (const portal of portalWeights.values()) {
+      const to = portalId(container.id, portal.name);
+      edges.push({
+        id: edgeId(container.id, portal.from, to),
+        kind: "portal",
+        parentId: container.id,
+        from: portal.from,
+        to,
+        weight: portal.weight,
+      });
+    }
+  }
+
+  return edges;
+}
+
+function directChild(
+  containerId: string,
+  anchorId: string,
+  parentById: ReadonlyMap<string, string | null>,
+): string | undefined {
+  if (anchorId === containerId) return undefined;
+  let current = anchorId;
+  const seen = new Set<string>();
+  while (!seen.has(current)) {
+    seen.add(current);
+    const parent = parentById.get(current);
+    if (parent === undefined || parent === null) return undefined;
+    if (parent === containerId) return current;
+    current = parent;
+  }
+  return undefined;
+}
+
+function unreadableFiles(warnings: readonly Warning[]): Set<string> {
+  const paths = new Set<string>();
+  for (const warning of warnings) {
+    if (warning.message.startsWith("unreadable")) paths.add(warning.path);
+  }
+  return paths;
 }
 
 function assignFiles(
@@ -235,6 +365,15 @@ function comparePathThenId(
   right: { path: string; id: string },
 ): number {
   return compareUtf8(left.path, right.path) || compareUtf8(left.id, right.id);
+}
+
+function compareEdges(left: CityEdge, right: CityEdge): number {
+  return (
+    compareUtf8(left.parentId, right.parentId) ||
+    compareUtf8(left.from, right.from) ||
+    compareUtf8(left.to, right.to) ||
+    compareUtf8(left.kind, right.kind)
+  );
 }
 
 function compareWarnings(left: Warning, right: Warning): number {
