@@ -107,7 +107,7 @@ describe("compose edges", () => {
     const cityLodash = portalId(appId, "lodash");
     const cliZod = portalId(cliId, "zod");
     const cityZod = portalId(appId, "zod");
-    const edges: CityEdge[] = [
+    const edges = ([
       {
         id: edgeId(coreId, agentsId, stateId),
         kind: "road",
@@ -172,7 +172,7 @@ describe("compose edges", () => {
         to: cityZod,
         weight: 1,
       },
-    ].sort(byEdge);
+    ] satisfies CityEdge[]).sort(byEdge);
     const expectedPortals = [
       portalNode(agentsId, "lodash"),
       portalNode(coreId, "lodash"),
@@ -233,7 +233,7 @@ describe("compose edges", () => {
     const buttonBox = symbolBoxId(widgets, "Button");
     const corePortal = portalId(coreId, "zod");
     const cityPortal = portalId(appId, "zod");
-    const edges: CityEdge[] = [
+    const edges = ([
       {
         id: edgeId(coreId, fileId, utilId),
         kind: "road",
@@ -258,7 +258,7 @@ describe("compose edges", () => {
         to: cityPortal,
         weight: 1,
       },
-    ].sort(byEdge);
+    ] satisfies CityEdge[]).sort(byEdge);
 
     const structure = compose(graph, packages);
     expect(structure.nodes.some((node) => node.name === "src" || node.path === "packages/core/src")).toBe(
@@ -335,7 +335,7 @@ describe("compose edges", () => {
     const agentsId = buildingId("packages/core/src/agents");
     const aId = fileBoxId(a);
     const bId = fileBoxId(b);
-    const edges: CityEdge[] = [
+    const edges = ([
       {
         id: edgeId(agentsId, aId, bId),
         kind: "road",
@@ -352,7 +352,7 @@ describe("compose edges", () => {
         to: aId,
         weight: 1,
       },
-    ].sort(byEdge);
+    ] satisfies CityEdge[]).sort(byEdge);
 
     const structure = compose(graph, packages);
     expect(structure.nodes.find((node) => node.id === agentsId)?.path).toBe(
