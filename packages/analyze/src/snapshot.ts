@@ -71,6 +71,12 @@ function assertOutOutsideFolder(root: string, outAbs: string): void {
   if (isSameOrInside(outReal, rootReal)) {
     throw new SnapshotFatal("--out must not be the analyzed folder or a path inside it");
   }
+  for (const entry of ["world.json", "index.html", "assets"]) {
+    const entryReal = resolvedRealPath(path.join(outAbs, entry));
+    if (isSameOrInside(rootReal, entryReal)) {
+      throw new SnapshotFatal("--out must not be the analyzed folder or a path inside it");
+    }
+  }
 }
 
 function readWorkspaces(root: string): WorkspacePackage[] {

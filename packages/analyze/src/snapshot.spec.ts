@@ -181,6 +181,29 @@ describe("snapshot fatals leave --out untouched", () => {
     expect(readdirSync(root).filter((name) => name.startsWith(".sw3d-staging-"))).toEqual([]);
   });
 
+  it("rejects --out when a replaced entry is the analyzed folder", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sw3d-out-assets-"));
+    roots.push(root);
+    const folder = path.join(root, "assets");
+    cpSync(path.join(fixtureRoot, "tiny"), folder, { recursive: true });
+    const dist = fakeViewer(root);
+    const marker = readFileSync(path.join(folder, "packages", "core", "src", "index.ts"));
+    const before = readdirSync(folder).sort();
+    const parent = path.dirname(root);
+    const stagingBefore = new Set(readdirSync(parent).filter((name) => name.startsWith(".sw3d-staging-")));
+    expect(() => snapshotWithHooks(optionsFor(folder, root), { viewerDist: dist })).toThrow(
+      /must not be the analyzed folder/,
+    );
+    expect(readdirSync(folder).sort()).toEqual(before);
+    expect(readFileSync(path.join(folder, "packages", "core", "src", "index.ts"))).toEqual(marker);
+    expect(existsSync(path.join(root, "world.json"))).toBe(false);
+    expect(existsSync(path.join(folder, "world.json"))).toBe(false);
+    expect(existsSync(path.join(folder, "index.html"))).toBe(false);
+    expect(readdirSync(folder).filter((name) => name.startsWith(".sw3d-staging-"))).toEqual([]);
+    expect(readdirSync(root).filter((name) => name.startsWith(".sw3d-staging-"))).toEqual([]);
+    expect(readdirSync(parent).filter((name) => name.startsWith(".sw3d-staging-") && !stagingBefore.has(name))).toEqual([]);
+  });
+
   itUnlessRoot("rejects an unreadable directory when it is the only source content", () => {
     const root = mkdtempSync(path.join(tmpdir(), "sw3d-locked-only-"));
     roots.push(root);
