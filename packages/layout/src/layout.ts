@@ -50,6 +50,22 @@ function toNode(node: CityNode, pose: WorldNode["pose"], mass: number): WorldNod
   return result;
 }
 
+function pushLayoutEdge(
+  edges: WorldEdge[],
+  edge: CityEdge,
+  points: { x: number; z: number }[],
+): void {
+  edges.push({
+    id: edge.id,
+    kind: edge.kind,
+    parentId: edge.parentId,
+    from: edge.from,
+    to: edge.to,
+    weight: edge.weight,
+    points: points.map((point) => ({ x: roundCoord(point.x), z: roundCoord(point.z) })),
+  });
+}
+
 function shift(layout: LocalLayout, dx: number, dz: number): LocalLayout {
   if (dx === 0 && dz === 0) return layout;
   return {
@@ -157,12 +173,6 @@ export function layout(city: CityStructure): World {
       edges.push(...moved.edges);
     }
     const height = roundCoord(Math.max(8, 8 * Math.sqrt(mass)));
-    const localFootprints: Footprint[] = packed.placements.map((placement) => ({
-      x: offset + placement.x,
-      z: offset + placement.z,
-      width: placement.width,
-      depth: placement.depth,
-    }));
     const footprintById = new Map(
       packed.placements.map((placement) => [
         placement.id,
@@ -174,6 +184,7 @@ export function layout(city: CityStructure): World {
         },
       ]),
     );
+    const localFootprints: Footprint[] = [...footprintById.values()];
     const portalById = new Map(portalLayout.portals.map((portal) => [portal.id, portal]));
     const rim = rimOf(packed.contentWidth, packed.contentDepth, portalLayout.padding);
     for (const portal of portalNodes) {
@@ -192,16 +203,7 @@ export function layout(city: CityStructure): World {
       if (edge.kind === "road") {
         const source = must(footprintById.get(edge.from), `missing road source ${edge.from}`);
         const target = must(footprintById.get(edge.to), `missing road target ${edge.to}`);
-        const points = routeRoad(source, target, localFootprints, { width, depth });
-        edges.push({
-          id: edge.id,
-          kind: edge.kind,
-          parentId: edge.parentId,
-          from: edge.from,
-          to: edge.to,
-          weight: edge.weight,
-          points: points.map((point) => ({ x: roundCoord(point.x), z: roundCoord(point.z) })),
-        });
+        pushLayoutEdge(edges, edge, routeRoad(source, target, localFootprints, { width, depth }));
         continue;
       }
       const sourcePlacement = must(placementById.get(edge.from), `missing portal source ${edge.from}`);
@@ -216,16 +218,11 @@ export function layout(city: CityStructure): World {
         x: roundCoord(offset + placed.centerX),
         z: roundCoord(offset + placed.centerZ),
       };
-      const points = routePortal(source, marker, exit, localFootprints, { width, depth });
-      edges.push({
-        id: edge.id,
-        kind: edge.kind,
-        parentId: edge.parentId,
-        from: edge.from,
-        to: edge.to,
-        weight: edge.weight,
-        points: points.map((point) => ({ x: roundCoord(point.x), z: roundCoord(point.z) })),
-      });
+      pushLayoutEdge(
+        edges,
+        edge,
+        routePortal(source, marker, exit, localFootprints, { width, depth }),
+      );
     }
     nodes.push(toNode(node, { x: 0, z: 0, width, depth, height }, mass));
     return { width, depth, nodes, edges };
