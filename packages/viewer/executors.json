@@ -1,0 +1,8 @@
+{
+  "executors": {
+    "test": {
+      "implementation": "./executors/test.cjs",
+      "schema": "./executors/schema.json"
+    }
+  }
+}

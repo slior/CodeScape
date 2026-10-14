@@ -21,11 +21,8 @@
       "cache": true
     },
     "test": {
-      "executor": "nx:run-commands",
-      "options": {
-        "command": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.config.cjs --colors --passWithNoTests {args}",
-        "cwd": "packages/viewer"
-      },
+      "executor": "@sw3d/viewer:test",
+      "options": {},
       "cache": true
     },
     "build": {

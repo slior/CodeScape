@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/schema",
+  "version": 2,
+  "title": "Viewer Vitest",
+  "type": "object",
+  "properties": {
+    "testPathPattern": {
+      "type": "string",
+      "description": "File filter forwarded to Vitest."
+    }
+  }
+}
