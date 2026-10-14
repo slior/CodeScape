@@ -28,12 +28,11 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "tsc -p tsconfig.json",
+        "command": "vite build",
         "cwd": "packages/viewer"
       },
       "outputs": ["{projectRoot}/dist"],
-      "cache": true,
-      "dependsOn": ["^build"]
+      "cache": true
     }
   },
   "tags": []

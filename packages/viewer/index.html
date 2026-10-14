@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Code city</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #111; color: #eee; font: 14px/1.4 sans-serif; }
+      #view { display: block; width: 100vw; height: 100vh; }
+      #panel { position: fixed; top: 0; right: 0; width: 280px; max-height: 100vh; overflow: auto; background: rgba(0,0,0,0.78); padding: 12px 16px; box-sizing: border-box; }
+      #breadcrumb { position: fixed; top: 8px; left: 8px; display: flex; gap: 6px; z-index: 2; }
+      #breadcrumb button { background: #222; color: #eee; border: 1px solid #555; padding: 4px 8px; cursor: pointer; }
+      #version-message { position: fixed; inset: 0; margin: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: #111; z-index: 3; }
+      #version-message[hidden], #panel[hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <p id="version-message" hidden></p>
+    <nav id="breadcrumb"></nav>
+    <canvas id="view"></canvas>
+    <aside id="panel" hidden>
+      <h2 id="panel-name"></h2>
+      <p>Kind: <span id="panel-kind"></span></p>
+      <p>Path: <span id="panel-path"></span></p>
+      <h3>Depends on</h3>
+      <ul id="panel-depends"></ul>
+      <h3>Used by</h3>
+      <ul id="panel-used"></ul>
+    </aside>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
