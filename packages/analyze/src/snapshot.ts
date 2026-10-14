@@ -22,7 +22,7 @@ import { publishSnapshot } from "./publish.js";
 import { walkSource } from "./walk.js";
 import { loadWorkspaces } from "./workspaces.js";
 
-export function defaultViewerDist(): string {
+function defaultViewerDist(): string {
   return path.resolve(fileURLToPath(new URL("../../viewer/dist", import.meta.url)));
 }
 
