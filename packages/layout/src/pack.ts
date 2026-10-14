@@ -278,7 +278,6 @@ function optimizePlacement(
   ordered: readonly FootprintChild[],
   edges: readonly PackEdge[],
 ): PackedFootprint[] {
-  const weights = undirectedWeights(ordered, edges);
   let order = [...ordered];
   let placements = packRows(order);
   let improved = true;
@@ -295,36 +294,8 @@ function optimizePlacement(
       const candidateOrder = swapOrder(order, left.id, right.id);
       const candidate = packRows(candidateOrder);
       if (!gapsOk(candidate)) continue;
-      const byId = new Map(placements.map((placement) => [placement.id, placement]));
-      const candidateById = new Map(candidate.map((placement) => [placement.id, placement]));
-      let currentCost = 0;
-      let candidateCost = 0;
-      for (const [key, weight] of weights) {
-        if (weight <= 0) continue;
-        const parts = key.split("\0");
-        const leftId = parts[0];
-        const rightId = parts[1];
-        if (leftId === undefined || rightId === undefined) continue;
-        const currentA = byId.get(leftId);
-        const currentB = byId.get(rightId);
-        const nextA = candidateById.get(leftId);
-        const nextB = candidateById.get(rightId);
-        if (
-          currentA === undefined ||
-          currentB === undefined ||
-          nextA === undefined ||
-          nextB === undefined
-        ) {
-          continue;
-        }
-        const currentCenterA = centerOf(currentA);
-        const currentCenterB = centerOf(currentB);
-        const nextCenterA = centerOf(nextA);
-        const nextCenterB = centerOf(nextB);
-        currentCost +=
-          (currentCenterA.x - currentCenterB.x) ** 2 + (currentCenterA.z - currentCenterB.z) ** 2;
-        candidateCost += (nextCenterA.x - nextCenterB.x) ** 2 + (nextCenterA.z - nextCenterB.z) ** 2;
-      }
+      const currentCost = squaredRoadCost(placements, edges);
+      const candidateCost = squaredRoadCost(candidate, edges);
       if (candidateCost < currentCost) {
         order = candidateOrder;
         placements = candidate;
