@@ -3,7 +3,19 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "sw3d": "./dist/bin.js"
+  },
   "dependencies": {
-    "@sw3d/model": "*"
+    "@sw3d/model": "*",
+    "@sw3d/parser-typescript": "*",
+    "@sw3d/compose": "*",
+    "@sw3d/layout": "*"
   }
 }

@@ -4,3 +4,5 @@ export { loadWorkspaces } from "./workspaces.js";
 export { walkSource } from "./walk.js";
 export type { WalkFile, WalkResult } from "./walk.js";
 export { publishSnapshot } from "./publish.js";
+export { snapshot } from "./snapshot.js";
+export { view } from "./view.js";
