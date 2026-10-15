@@ -10,6 +10,7 @@ async function testExecutor(options, context) {
   if (typeof options.testPathPattern === "string" && options.testPathPattern.length > 0) {
     args.push(options.testPathPattern);
   }
+  if (options.coverage) args.push("--coverage");
   const result = spawnSync(process.execPath, args, { cwd: projectRoot, stdio: "inherit" });
   return { success: result.status === 0 };
 }

@@ -7,6 +7,11 @@
     "testPathPattern": {
       "type": "string",
       "description": "File filter forwarded to Vitest."
+    },
+    "coverage": {
+      "type": "boolean",
+      "description": "Collect a Vitest coverage report.",
+      "default": false
     }
   }
 }

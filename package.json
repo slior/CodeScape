@@ -9,7 +9,9 @@
     "packages/*"
   ],
   "scripts": {
-    "test-all": "nx run-many -t test"
+    "test-all": "nx run-many -t test",
+    "test-coverage": "nx run-many -t test -p model,parser-typescript,compose,layout,analyze,viewer -- --coverage",
+    "coverage": "nx run-many -t test -p model,parser-typescript,compose,layout,analyze,viewer --outputStyle=stream --skip-nx-cache -- --coverage"
   },
   "devDependencies": {
     "@types/jest": "29.5.14",
