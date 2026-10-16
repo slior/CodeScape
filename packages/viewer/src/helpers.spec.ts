@@ -8,6 +8,7 @@ import {
   incidentEdges,
   resolveWalk,
   startLoadedWorld,
+  walkDirection,
 } from "./helpers.js";
 
 function pose(x: number, z: number, width = 10, depth = 10, height = 8): Pose {
@@ -122,6 +123,28 @@ describe("clampToWalkable", () => {
   it("moves a point inside a district footprint onto a street-cell center", () => {
     const street = new Set(["-2,4", "4,-2", "4,10", "10,4"]);
     expect(clampToWalkable({ x: 5, z: 5 }, street)).toEqual({ x: -1, z: 5 });
+  });
+});
+
+describe("walkDirection", () => {
+  const idle = { w: false, a: false, s: false, d: false };
+
+  it("strafes left on A and right on D when looking down -Z", () => {
+    const forward = { x: 0, y: 0, z: -1 };
+    expect(walkDirection(forward, { ...idle, a: true })).toEqual({ x: -1, z: 0 });
+    expect(walkDirection(forward, { ...idle, d: true })).toEqual({ x: 1, z: 0 });
+  });
+
+  it("strafes relative to the look direction", () => {
+    const forward = { x: 1, y: 0, z: 0 };
+    expect(walkDirection(forward, { ...idle, a: true })).toEqual({ x: 0, z: -1 });
+    expect(walkDirection(forward, { ...idle, d: true })).toEqual({ x: 0, z: 1 });
+  });
+
+  it("walks forward on W and back on S", () => {
+    const forward = { x: 0, y: 0, z: -1 };
+    expect(walkDirection(forward, { ...idle, w: true })).toEqual({ x: 0, z: -1 });
+    expect(walkDirection(forward, { ...idle, s: true })).toEqual({ x: 0, z: 1 });
   });
 });
 

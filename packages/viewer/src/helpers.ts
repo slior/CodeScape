@@ -5,6 +5,11 @@ interface CellCorner {
   minZ: number;
 }
 
+interface XzPoint {
+  x: number;
+  z: number;
+}
+
 export function breadcrumb(world: World, parentId: string): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
@@ -45,10 +50,7 @@ function parseCellKey(key: string): CellCorner | null {
   return { minX, minZ };
 }
 
-export function clampToWalkable(
-  position: { x: number; z: number },
-  walkable: ReadonlySet<string>,
-): { x: number; z: number } {
+export function clampToWalkable(position: XzPoint, walkable: ReadonlySet<string>): XzPoint {
   let best: CellCorner | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (const key of walkable) {
@@ -75,7 +77,7 @@ export function clampToWalkable(
   return { x: best.minX + 1, z: best.minZ + 1 };
 }
 
-function pointInsideCell(position: { x: number; z: number }, corner: CellCorner): boolean {
+function pointInsideCell(position: XzPoint, corner: CellCorner): boolean {
   return (
     position.x >= corner.minX &&
     position.x < corner.minX + 2 &&
@@ -84,10 +86,74 @@ function pointInsideCell(position: { x: number; z: number }, corner: CellCorner)
   );
 }
 
-export function resolveWalk(
-  position: { x: number; z: number },
-  walkable: ReadonlySet<string>,
-): { x: number; z: number } {
+/**
+ * Calculates the normalized movement direction vector in the XZ plane
+ * based on the given camera forward direction and keyboard input.
+ *
+ * The function projects the forward vector onto the XZ plane and uses the WASD keys to
+ * compute a composite movement vector. The result is normalized, so the player always moves
+ * at a consistent speed regardless of simultaneous key presses or facing.
+ *
+ * @param forward - The camera's forward direction as an object with x, y, and z components.
+ *                  Only the x and z components are considered.
+ * @param keys - An object representing which movement keys are currently pressed:
+ *               - w: move forward
+ *               - a: strafe left
+ *               - s: move backward
+ *               - d: strafe right
+ * @returns An object { x, z } representing the normalized movement direction vector in the XZ plane,
+ *          or null if no movement keys are pressed.
+ *
+ * @example
+ * // Facing down -Z, pressing "d" (right)
+ * walkDirection({ x: 0, y: 0, z: -1 }, { w: false, a: false, s: false, d: true });
+ * // => { x: 1, z: 0 }
+ *
+ * // Facing +X, pressing "a" (left)
+ * walkDirection({ x: 1, y: 0, z: 0 }, { w: false, a: true, s: false, d: false });
+ * // => { x: 0, z: -1 }
+ */
+export function walkDirection(
+  forward: { x: number; y: number; z: number },
+  keys: { w: boolean; a: boolean; s: boolean; d: boolean },
+): XzPoint | null {
+  let fx = forward.x;
+  let fz = forward.z;
+  // Handle degenerate case: zero forward vector
+  if (fx * fx + fz * fz < 1e-8) {
+    fx = 0;
+    fz = 1;
+  } else {
+    const length = Math.hypot(fx, fz);
+    fx /= length;
+    fz /= length;
+  }
+  const rightX = -fz;
+  const rightZ = fx;
+  let mx = 0;
+  let mz = 0;
+  if (keys.w) {
+    mx += fx;
+    mz += fz;
+  }
+  if (keys.s) {
+    mx -= fx;
+    mz -= fz;
+  }
+  if (keys.d) {
+    mx += rightX;
+    mz += rightZ;
+  }
+  if (keys.a) {
+    mx -= rightX;
+    mz -= rightZ;
+  }
+  const length = Math.hypot(mx, mz);
+  if (length === 0) return null;
+  return { x: mx / length, z: mz / length };
+}
+
+export function resolveWalk(position: XzPoint, walkable: ReadonlySet<string>): XzPoint {
   for (const key of walkable) {
     const corner = parseCellKey(key);
     if (corner && pointInsideCell(position, corner)) {

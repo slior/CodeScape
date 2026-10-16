@@ -6,6 +6,7 @@ import {
   incidentEdges,
   resolveWalk,
   startLoadedWorld,
+  walkDirection,
 } from "./helpers.js";
 import {
   createSceneGraph,
@@ -179,8 +180,6 @@ function start(world: World): void {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2(0, 0);
   const forward = new THREE.Vector3();
-  const right = new THREE.Vector3();
-  const up = new THREE.Vector3(0, 1, 0);
 
   function applyLook(): void {
     const limit = Math.PI / 2 - 0.05;
@@ -392,33 +391,11 @@ function start(world: World): void {
     const dt = Math.min(clock.getDelta(), 0.05);
     if (!overhead && !easing && (keys.w || keys.a || keys.s || keys.d)) {
       camera.getWorldDirection(forward);
-      forward.y = 0;
-      if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1);
-      forward.normalize();
-      right.crossVectors(up, forward).normalize();
-      let mx = 0;
-      let mz = 0;
-      if (keys.w) {
-        mx += forward.x;
-        mz += forward.z;
-      }
-      if (keys.s) {
-        mx -= forward.x;
-        mz -= forward.z;
-      }
-      if (keys.d) {
-        mx += right.x;
-        mz += right.z;
-      }
-      if (keys.a) {
-        mx -= right.x;
-        mz -= right.z;
-      }
-      const length = Math.hypot(mx, mz);
-      if (length > 0) {
+      const direction = walkDirection(forward, keys);
+      if (direction) {
         const speed = (keys.shift ? FAST_SPEED : WALK_SPEED) * dt;
         const next = resolveWalk(
-          { x: camera.position.x + (mx / length) * speed, z: camera.position.z + (mz / length) * speed },
+          { x: camera.position.x + direction.x * speed, z: camera.position.z + direction.z * speed },
           walkable,
         );
         camera.position.x = next.x;
