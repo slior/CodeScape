@@ -5,7 +5,7 @@ interface CellCorner {
   minZ: number;
 }
 
-interface XzPoint {
+interface XZPoint {
   x: number;
   z: number;
 }
@@ -50,7 +50,7 @@ function parseCellKey(key: string): CellCorner | null {
   return { minX, minZ };
 }
 
-export function clampToWalkable(position: XzPoint, walkable: ReadonlySet<string>): XzPoint {
+export function clampToWalkable(position: XZPoint, walkable: ReadonlySet<string>): XZPoint {
   let best: CellCorner | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (const key of walkable) {
@@ -77,7 +77,7 @@ export function clampToWalkable(position: XzPoint, walkable: ReadonlySet<string>
   return { x: best.minX + 1, z: best.minZ + 1 };
 }
 
-function pointInsideCell(position: XzPoint, corner: CellCorner): boolean {
+function pointInsideCell(position: XZPoint, corner: CellCorner): boolean {
   return (
     position.x >= corner.minX &&
     position.x < corner.minX + 2 &&
@@ -116,7 +116,7 @@ function pointInsideCell(position: XzPoint, corner: CellCorner): boolean {
 export function walkDirection(
   forward: { x: number; y: number; z: number },
   keys: { w: boolean; a: boolean; s: boolean; d: boolean },
-): XzPoint | null {
+): XZPoint | null {
   let fx = forward.x;
   let fz = forward.z;
   // Handle degenerate case: zero forward vector
@@ -153,7 +153,7 @@ export function walkDirection(
   return { x: mx / length, z: mz / length };
 }
 
-export function resolveWalk(position: XzPoint, walkable: ReadonlySet<string>): XzPoint {
+export function resolveWalk(position: XZPoint, walkable: ReadonlySet<string>): XZPoint {
   for (const key of walkable) {
     const corner = parseCellKey(key);
     if (corner && pointInsideCell(position, corner)) {
