@@ -16,18 +16,47 @@ import {
   type EdgeMesh,
   type FootprintMesh,
 } from "./scene.js";
-
-const WALK_SPEED = 8;
-const FAST_SPEED = 24;
-const EYE_HEIGHT = 4;
-
-interface Keys {
-  w: boolean;
-  a: boolean;
-  s: boolean;
-  d: boolean;
-  shift: boolean;
-}
+import {
+  ACTION_KEY,
+  AMBIENT_INTENSITY,
+  BACKGROUND_COLOR,
+  CAMERA_FAR,
+  CAMERA_FOV_DEGREES,
+  CAMERA_NEAR,
+  CAMERA_ROTATION_ORDER,
+  EASE_DURATION_MS,
+  EDGE_COLOR,
+  EDGE_END,
+  EDGE_KIND,
+  EDGE_THICKNESS,
+  EDGE_WIDTH_BASE,
+  EDGE_WIDTH_PER_WEIGHT,
+  EYE_HEIGHT,
+  FAST_SPEED,
+  FOOTPRINT_COLOR,
+  INITIAL_CAMERA_ASPECT,
+  LIGHT_COLOR,
+  LOOK_RADIANS_PER_PIXEL,
+  MAX_FRAME_SECONDS,
+  MOVE_KEY,
+  NODE_KIND,
+  OVERHEAD_CLEARANCE,
+  OVERHEAD_MIN_SPAN,
+  OVERHEAD_PITCH,
+  PITCH_LIMIT_MARGIN,
+  STREET_YAW,
+  SUN_INTENSITY,
+  SUN_POSITION,
+  VIEW_ELEMENT,
+  WALK_SPEED,
+  WORLD_URL,
+  type EdgeEnd,
+  type Keys,
+  type StreetStage,
+  type ViewerShell,
+  type XyzPoint,
+  type XzPoint,
+} from "./types.js";
 
 function mustElement<T extends Element>(selector: string, ctor: new () => T): T {
   const element = document.querySelector(selector);
@@ -35,12 +64,29 @@ function mustElement<T extends Element>(selector: string, ctor: new () => T): T 
   return element;
 }
 
+function readViewerShell(): ViewerShell {
+  return {
+    canvas: mustElement(VIEW_ELEMENT.CANVAS, HTMLCanvasElement),
+    panel: mustElement(VIEW_ELEMENT.PANEL, HTMLElement),
+    panelName: mustElement(VIEW_ELEMENT.PANEL_NAME, HTMLHeadingElement),
+    panelKind: mustElement(VIEW_ELEMENT.PANEL_KIND, HTMLSpanElement),
+    panelPath: mustElement(VIEW_ELEMENT.PANEL_PATH, HTMLSpanElement),
+    panelDepends: mustElement(VIEW_ELEMENT.PANEL_DEPENDS, HTMLUListElement),
+    panelUsed: mustElement(VIEW_ELEMENT.PANEL_USED, HTMLUListElement),
+    crumb: mustElement(VIEW_ELEMENT.BREADCRUMB, HTMLElement),
+  };
+}
+
 function showVersionMessage(text: string): void {
-  const message = mustElement("#version-message", HTMLParagraphElement);
-  const canvas = mustElement("#view", HTMLCanvasElement);
+  const message = mustElement(VIEW_ELEMENT.VERSION_MESSAGE, HTMLParagraphElement);
+  const canvas = mustElement(VIEW_ELEMENT.CANVAS, HTMLCanvasElement);
   message.hidden = false;
   message.textContent = text;
   canvas.hidden = true;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function findNode(world: World, id: string): Node | undefined {
@@ -65,26 +111,80 @@ function chainIds(world: World, id: string): string[] {
 function endpointLabel(world: World, nodeId: string): string {
   const node = findNode(world, nodeId);
   if (!node) return nodeId;
-  if (node.kind === "portal") return node.packageName ?? node.name;
+  if (node.kind === NODE_KIND.PORTAL) return node.packageName ?? node.name;
   return node.name;
 }
 
-function fillEdgeList(list: HTMLUListElement, world: World, edges: readonly Edge[], end: "to" | "from"): void {
+function fillEdgeList(list: HTMLUListElement, world: World, edges: readonly Edge[], end: EdgeEnd): void {
   list.replaceChildren();
   for (const edge of edges) {
     const item = document.createElement("li");
-    const other = end === "to" ? edge.to : edge.from;
+    const other = end === EDGE_END.TO ? edge.to : edge.from;
     item.textContent = `${endpointLabel(world, other)} (${edge.weight})`;
     list.append(item);
   }
 }
 
-const FOOTPRINT_COLOR: Record<FootprintMesh["kind"], number> = {
-  district: 0x4c6ef5,
-  building: 0xf59f00,
-  box: 0x868e96,
-  portal: 0xae3ec9,
-};
+function matchesLetter(key: string, letter: string): boolean {
+  return key === letter || key === letter.toUpperCase();
+}
+
+function assignMovementKey(keys: Keys, key: string, pressed: boolean): void {
+  if (matchesLetter(key, MOVE_KEY.FORWARD)) keys[MOVE_KEY.FORWARD] = pressed;
+  if (matchesLetter(key, MOVE_KEY.LEFT)) keys[MOVE_KEY.LEFT] = pressed;
+  if (matchesLetter(key, MOVE_KEY.BACK)) keys[MOVE_KEY.BACK] = pressed;
+  if (matchesLetter(key, MOVE_KEY.RIGHT)) keys[MOVE_KEY.RIGHT] = pressed;
+  if (key === MOVE_KEY.SPRINT) keys.shift = pressed;
+}
+
+function isMoving(keys: Keys): boolean {
+  return keys[MOVE_KEY.FORWARD] || keys[MOVE_KEY.LEFT] || keys[MOVE_KEY.BACK] || keys[MOVE_KEY.RIGHT];
+}
+
+function clampPitch(pitch: number): number {
+  const limit = Math.PI / 2 - PITCH_LIMIT_MARGIN;
+  return Math.max(-limit, Math.min(limit, pitch));
+}
+
+function smoothstep(t: number): number {
+  return t * t * (3 - 2 * t);
+}
+
+function lerp(from: number, to: number, amount: number): number {
+  return from + (to - from) * amount;
+}
+
+function setPointerFromClient(pointer: THREE.Vector2, rect: DOMRect, clientX: number, clientY: number): void {
+  pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+}
+
+function createStreetStage(canvas: HTMLCanvasElement): StreetStage {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(BACKGROUND_COLOR);
+  const camera = new THREE.PerspectiveCamera(
+    CAMERA_FOV_DEGREES,
+    INITIAL_CAMERA_ASPECT,
+    CAMERA_NEAR,
+    CAMERA_FAR,
+  );
+  camera.rotation.order = CAMERA_ROTATION_ORDER;
+  scene.add(new THREE.AmbientLight(LIGHT_COLOR, AMBIENT_INTENSITY));
+  const sun = new THREE.DirectionalLight(LIGHT_COLOR, SUN_INTENSITY);
+  sun.position.set(SUN_POSITION.x, SUN_POSITION.y, SUN_POSITION.z);
+  scene.add(sun);
+  return { renderer, scene, camera };
+}
+
+function removeDrawnMeshes(scene: THREE.Scene): void {
+  for (let index = scene.children.length - 1; index >= 0; index -= 1) {
+    const child = scene.children[index];
+    if (!child || child instanceof THREE.Light) continue;
+    scene.remove(child);
+  }
+}
 
 function addFootprint(scene: THREE.Scene, foot: FootprintMesh): THREE.Mesh {
   const geometry = new THREE.BoxGeometry(foot.width, foot.height, foot.depth);
@@ -96,23 +196,27 @@ function addFootprint(scene: THREE.Scene, foot: FootprintMesh): THREE.Mesh {
   return mesh;
 }
 
+function addEdgeSegment(scene: THREE.Scene, start: XzPoint, end: XzPoint, width: number, color: number): void {
+  const dx = end.x - start.x;
+  const dz = end.z - start.z;
+  const length = Math.hypot(dx, dz);
+  if (length === 0) return;
+  const geometry = new THREE.BoxGeometry(width, EDGE_THICKNESS, length);
+  const material = new THREE.MeshStandardMaterial({ color });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set((start.x + end.x) / 2, EDGE_THICKNESS / 2, (start.z + end.z) / 2);
+  mesh.rotation.y = Math.atan2(dx, dz);
+  scene.add(mesh);
+}
+
 function addEdge(scene: THREE.Scene, edge: EdgeMesh): void {
-  const width = 0.35 + edge.weight * 0.2;
-  const color = edge.kind === "portal" ? 0x9c36b5 : 0xfab005;
+  const width = EDGE_WIDTH_BASE + edge.weight * EDGE_WIDTH_PER_WEIGHT;
+  const color = edge.kind === EDGE_KIND.PORTAL ? EDGE_COLOR.PORTAL : EDGE_COLOR.ROAD;
   for (let index = 1; index < edge.points.length; index += 1) {
     const start = edge.points[index - 1];
     const end = edge.points[index];
     if (!start || !end) continue;
-    const dx = end.x - start.x;
-    const dz = end.z - start.z;
-    const length = Math.hypot(dx, dz);
-    if (length === 0) continue;
-    const geometry = new THREE.BoxGeometry(width, 0.12, length);
-    const material = new THREE.MeshStandardMaterial({ color });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set((start.x + end.x) / 2, 0.06, (start.z + end.z) / 2);
-    mesh.rotation.y = Math.atan2(dx, dz);
-    scene.add(mesh);
+    addEdgeSegment(scene, start, end, width, color);
   }
 }
 
@@ -124,84 +228,92 @@ function hitId(intersections: readonly THREE.Intersection[]): string | null {
   return null;
 }
 
+function overheadEyeY(width: number, depth: number): number {
+  return Math.max(width, depth, OVERHEAD_MIN_SPAN) + OVERHEAD_CLEARANCE;
+}
+
+function stepStreetMotion(
+  camera: THREE.PerspectiveCamera,
+  keys: Keys,
+  walkable: ReadonlySet<string>,
+  forward: THREE.Vector3,
+  dt: number,
+): void {
+  camera.getWorldDirection(forward);
+  const direction = walkDirection(forward, keys);
+  if (!direction) return;
+  const speed = (keys.shift ? FAST_SPEED : WALK_SPEED) * dt;
+  const next = resolveWalk(
+    { x: camera.position.x + direction.x * speed, z: camera.position.z + direction.z * speed },
+    walkable,
+  );
+  camera.position.x = next.x;
+  camera.position.z = next.z;
+  camera.position.y = EYE_HEIGHT;
+}
+
 async function boot(): Promise<void> {
   let payload: unknown;
   try {
-    const response = await fetch("./world.json");
+    const response = await fetch(WORLD_URL);
     if (!response.ok) {
-      showVersionMessage(`Could not load ./world.json (${response.status}).`);
+      showVersionMessage(`Could not load ${WORLD_URL} (${response.status}).`);
       return;
     }
     payload = await response.json();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    showVersionMessage(message);
+    showVersionMessage(errorText(error));
     return;
   }
   startLoadedWorld(payload, start, showVersionMessage);
 }
 
 function start(world: World): void {
-  const canvas = mustElement("#view", HTMLCanvasElement);
-  const panel = mustElement("#panel", HTMLElement);
-  const panelName = mustElement("#panel-name", HTMLHeadingElement);
-  const panelKind = mustElement("#panel-kind", HTMLSpanElement);
-  const panelPath = mustElement("#panel-path", HTMLSpanElement);
-  const panelDepends = mustElement("#panel-depends", HTMLUListElement);
-  const panelUsed = mustElement("#panel-used", HTMLUListElement);
-  const crumb = mustElement("#breadcrumb", HTMLElement);
-  const city = world.nodes.find((node) => node.kind === "city");
+  const shell = readViewerShell();
+  const city = world.nodes.find((node) => node.kind === NODE_KIND.CITY);
   if (!city) {
     showVersionMessage("world.json has no city.");
     return;
   }
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x111111);
-  const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 2000);
-  camera.rotation.order = "YXZ";
-  scene.add(new THREE.AmbientLight(0xffffff, 0.65));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-  sun.position.set(20, 40, 10);
-  scene.add(sun);
+  const { renderer, scene, camera } = createStreetStage(shell.canvas);
 
   let parentId = city.id;
   let selectedId: string | null = null;
   let walkable = walkableCellKeys(world, parentId);
   let overhead = false;
   let easing = false;
-  let yaw = Math.PI;
+  let yaw = STREET_YAW;
   let pitch = 0;
   const saved = { x: 0, y: EYE_HEIGHT, z: 0, yaw, pitch };
-  const keys: Keys = { w: false, a: false, s: false, d: false, shift: false };
+  const keys: Keys = {
+    [MOVE_KEY.FORWARD]: false,
+    [MOVE_KEY.LEFT]: false,
+    [MOVE_KEY.BACK]: false,
+    [MOVE_KEY.RIGHT]: false,
+    shift: false,
+  };
   const clock = new THREE.Clock();
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2(0, 0);
   const forward = new THREE.Vector3();
 
   function applyLook(): void {
-    const limit = Math.PI / 2 - 0.05;
-    pitch = Math.max(-limit, Math.min(limit, pitch));
+    pitch = clampPitch(pitch);
     camera.rotation.y = yaw;
     camera.rotation.x = pitch;
   }
 
-  function placeStreet(spot: { x: number; y: number; z: number }): void {
+  function placeStreet(spot: XyzPoint): void {
     overhead = false;
     camera.position.set(spot.x, spot.y, spot.z);
-    yaw = Math.PI;
+    yaw = STREET_YAW;
     pitch = 0;
     applyLook();
   }
 
   function rebuild(): void {
-    for (let index = scene.children.length - 1; index >= 0; index -= 1) {
-      const child = scene.children[index];
-      if (!child || child instanceof THREE.Light) continue;
-      scene.remove(child);
-    }
+    removeDrawnMeshes(scene);
     const graph = createSceneGraph(world, parentId);
     for (const foot of graph.footprints) addFootprint(scene, foot);
     for (const edge of graph.edges) addEdge(scene, edge);
@@ -213,20 +325,20 @@ function start(world: World): void {
   function renderPanel(): void {
     const selected = selectedId ? findNode(world, selectedId) : undefined;
     if (!selected || selected.parentId !== parentId) {
-      panel.hidden = true;
+      shell.panel.hidden = true;
       return;
     }
-    panel.hidden = false;
-    panelName.textContent = selected.name;
-    panelKind.textContent = selected.kind;
-    panelPath.textContent = selected.path;
+    shell.panel.hidden = false;
+    shell.panelName.textContent = selected.name;
+    shell.panelKind.textContent = selected.kind;
+    shell.panelPath.textContent = selected.path;
     const lists = incidentEdges(world, selected.id);
-    fillEdgeList(panelDepends, world, lists.dependsOn, "to");
-    fillEdgeList(panelUsed, world, lists.usedBy, "from");
+    fillEdgeList(shell.panelDepends, world, lists.dependsOn, EDGE_END.TO);
+    fillEdgeList(shell.panelUsed, world, lists.usedBy, EDGE_END.FROM);
   }
 
   function renderBreadcrumb(): void {
-    crumb.replaceChildren();
+    shell.crumb.replaceChildren();
     const ids = chainIds(world, parentId);
     const names = breadcrumb(world, parentId);
     for (let index = 0; index < names.length; index += 1) {
@@ -239,7 +351,7 @@ function start(world: World): void {
       button.addEventListener("click", () => {
         if (id !== parentId) goToAncestor(id);
       });
-      crumb.append(button);
+      shell.crumb.append(button);
     }
   }
 
@@ -254,19 +366,19 @@ function start(world: World): void {
     renderPanel();
   }
 
-  function easeTo(spot: { x: number; y: number; z: number }, nextParent: string): void {
+  function easeTo(spot: XyzPoint, nextParent: string): void {
     if (easing) return;
     easing = true;
     overhead = false;
     const origin = camera.position.clone();
     const started = performance.now();
     const frame = (now: number): void => {
-      const t = Math.min(1, (now - started) / 400);
-      const k = t * t * (3 - 2 * t);
+      const t = Math.min(1, (now - started) / EASE_DURATION_MS);
+      const amount = smoothstep(t);
       camera.position.set(
-        origin.x + (spot.x - origin.x) * k,
-        origin.y + (spot.y - origin.y) * k,
-        origin.z + (spot.z - origin.z) * k,
+        lerp(origin.x, spot.x, amount),
+        lerp(origin.y, spot.y, amount),
+        lerp(origin.z, spot.z, amount),
       );
       if (t < 1) {
         requestAnimationFrame(frame);
@@ -316,11 +428,11 @@ function start(world: World): void {
       overhead = true;
       camera.position.set(
         parent.pose.x + parent.pose.width / 2,
-        Math.max(parent.pose.width, parent.pose.depth, 8) + 20,
+        overheadEyeY(parent.pose.width, parent.pose.depth),
         parent.pose.z + parent.pose.depth / 2,
       );
-      camera.rotation.order = "YXZ";
-      camera.rotation.x = -Math.PI / 2;
+      camera.rotation.order = CAMERA_ROTATION_ORDER;
+      camera.rotation.x = OVERHEAD_PITCH;
       camera.rotation.y = 0;
       return;
     }
@@ -344,39 +456,30 @@ function start(world: World): void {
   resize();
 
   window.addEventListener("resize", resize);
-  canvas.addEventListener("click", (event) => {
-    const rect = canvas.getBoundingClientRect();
-    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  shell.canvas.addEventListener("click", (event) => {
+    const rect = shell.canvas.getBoundingClientRect();
+    setPointerFromClient(pointer, rect, event.clientX, event.clientY);
     raycaster.setFromCamera(pointer, camera);
     selectId(hitId(raycaster.intersectObjects(scene.children, false)));
-    if (document.pointerLockElement !== canvas) canvas.requestPointerLock();
+    if (document.pointerLockElement !== shell.canvas) shell.canvas.requestPointerLock();
   });
   document.addEventListener("mousemove", (event) => {
-    if (document.pointerLockElement !== canvas || overhead || easing) return;
-    yaw -= event.movementX * 0.002;
-    pitch -= event.movementY * 0.002;
+    if (document.pointerLockElement !== shell.canvas || overhead || easing) return;
+    yaw -= event.movementX * LOOK_RADIANS_PER_PIXEL;
+    pitch -= event.movementY * LOOK_RADIANS_PER_PIXEL;
     applyLook();
   });
   window.addEventListener("keydown", (event) => {
     if (event.repeat) return;
-    if (event.key === "w" || event.key === "W") keys.w = true;
-    if (event.key === "a" || event.key === "A") keys.a = true;
-    if (event.key === "s" || event.key === "S") keys.s = true;
-    if (event.key === "d" || event.key === "D") keys.d = true;
-    if (event.key === "Shift") keys.shift = true;
-    if (event.key === "v" || event.key === "V") toggleOverhead();
-    if (event.key === "Enter") enterHit(centerHit());
-    if (event.key === "Escape") leaveCourtyard();
+    assignMovementKey(keys, event.key, true);
+    if (matchesLetter(event.key, ACTION_KEY.OVERHEAD)) toggleOverhead();
+    if (event.key === ACTION_KEY.ENTER) enterHit(centerHit());
+    if (event.key === ACTION_KEY.LEAVE) leaveCourtyard();
   });
   window.addEventListener("keyup", (event) => {
-    if (event.key === "w" || event.key === "W") keys.w = false;
-    if (event.key === "a" || event.key === "A") keys.a = false;
-    if (event.key === "s" || event.key === "S") keys.s = false;
-    if (event.key === "d" || event.key === "D") keys.d = false;
-    if (event.key === "Shift") keys.shift = false;
+    assignMovementKey(keys, event.key, false);
   });
-  canvas.addEventListener(
+  shell.canvas.addEventListener(
     "wheel",
     (event) => {
       event.preventDefault();
@@ -388,20 +491,9 @@ function start(world: World): void {
   );
 
   renderer.setAnimationLoop(() => {
-    const dt = Math.min(clock.getDelta(), 0.05);
-    if (!overhead && !easing && (keys.w || keys.a || keys.s || keys.d)) {
-      camera.getWorldDirection(forward);
-      const direction = walkDirection(forward, keys);
-      if (direction) {
-        const speed = (keys.shift ? FAST_SPEED : WALK_SPEED) * dt;
-        const next = resolveWalk(
-          { x: camera.position.x + direction.x * speed, z: camera.position.z + direction.z * speed },
-          walkable,
-        );
-        camera.position.x = next.x;
-        camera.position.z = next.z;
-        camera.position.y = EYE_HEIGHT;
-      }
+    const dt = Math.min(clock.getDelta(), MAX_FRAME_SECONDS);
+    if (!overhead && !easing && isMoving(keys)) {
+      stepStreetMotion(camera, keys, walkable, forward, dt);
     }
     renderer.render(scene, camera);
   });

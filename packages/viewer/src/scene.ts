@@ -1,9 +1,20 @@
 import type { Node, World } from "@sw3d/model";
 import { clampToWalkable } from "./helpers.js";
+import {
+  CELL_CENTER_OFFSET,
+  CELL_KEY_SEPARATOR,
+  CELL_SIZE,
+  EYE_HEIGHT,
+  NODE_KIND,
+  type EdgeKind,
+  type FootprintKind,
+  type XyzPoint,
+  type XzPoint,
+} from "./types.js";
 
 export interface FootprintMesh {
   id: string;
-  kind: "district" | "building" | "box" | "portal";
+  kind: FootprintKind;
   name: string;
   path: string;
   x: number;
@@ -15,11 +26,11 @@ export interface FootprintMesh {
 
 export interface EdgeMesh {
   id: string;
-  kind: "road" | "portal";
+  kind: EdgeKind;
   from: string;
   to: string;
   weight: number;
-  points: { x: number; z: number }[];
+  points: XzPoint[];
 }
 
 export interface SceneGraph {
@@ -38,7 +49,7 @@ export function createSceneGraph(world: World, parentId: string): SceneGraph {
   const footprints: FootprintMesh[] = [];
   const labels: { id: string; text: string }[] = [];
   for (const child of children) {
-    if (child.kind === "city") continue;
+    if (child.kind === NODE_KIND.CITY) continue;
     footprints.push({
       id: child.id,
       kind: child.kind,
@@ -73,37 +84,44 @@ function overlapsInterior(
   footWidth: number,
   footDepth: number,
 ): boolean {
-  return cellX < footX + footWidth && cellX + 2 > footX && cellZ < footZ + footDepth && cellZ + 2 > footZ;
+  return (
+    cellX < footX + footWidth &&
+    cellX + CELL_SIZE > footX &&
+    cellZ < footZ + footDepth &&
+    cellZ + CELL_SIZE > footZ
+  );
 }
 
 export function walkableCellKeys(world: World, parentId: string): Set<string> {
   const parent = findNode(world, parentId);
   const keys = new Set<string>();
   if (!parent) return keys;
-  const solids = world.nodes.filter((node) => node.parentId === parentId && node.kind !== "portal" && node.kind !== "city");
+  const solids = world.nodes.filter(
+    (node) => node.parentId === parentId && node.kind !== NODE_KIND.PORTAL && node.kind !== NODE_KIND.CITY,
+  );
   const xEnd = parent.pose.x + parent.pose.width;
   const zEnd = parent.pose.z + parent.pose.depth;
-  for (let x = parent.pose.x; x < xEnd; x += 2) {
-    for (let z = parent.pose.z; z < zEnd; z += 2) {
+  for (let x = parent.pose.x; x < xEnd; x += CELL_SIZE) {
+    for (let z = parent.pose.z; z < zEnd; z += CELL_SIZE) {
       const blocked = solids.some((node) =>
         overlapsInterior(x, z, node.pose.x, node.pose.z, node.pose.width, node.pose.depth),
       );
-      if (!blocked) keys.add(`${x},${z}`);
+      if (!blocked) keys.add(`${x}${CELL_KEY_SEPARATOR}${z}`);
     }
   }
   return keys;
 }
 
-export function southRimStart(world: World, parentId: string): { x: number; y: number; z: number } {
+export function southRimStart(world: World, parentId: string): XyzPoint {
   const parent = findNode(world, parentId);
   const keys = walkableCellKeys(world, parentId);
   const midX = parent ? parent.pose.x + parent.pose.width / 2 : 0;
-  let best: { x: number; z: number } | null = null;
+  let best: XzPoint | null = null;
   for (const key of keys) {
-    const comma = key.indexOf(",");
+    const comma = key.indexOf(CELL_KEY_SEPARATOR);
     const minX = Number(key.slice(0, comma));
-    const minZ = Number(key.slice(comma + 1));
-    const center = { x: minX + 1, z: minZ + 1 };
+    const minZ = Number(key.slice(comma + CELL_KEY_SEPARATOR.length));
+    const center = { x: minX + CELL_CENTER_OFFSET, z: minZ + CELL_CENTER_OFFSET };
     if (!best) {
       best = center;
       continue;
@@ -116,19 +134,19 @@ export function southRimStart(world: World, parentId: string): { x: number; y: n
         center.x < best.x);
     if (better) best = center;
   }
-  if (!best) return { x: midX, y: 4, z: parent ? parent.pose.z : 0 };
-  return { x: best.x, y: 4, z: best.z };
+  if (!best) return { x: midX, y: EYE_HEIGHT, z: parent ? parent.pose.z : 0 };
+  return { x: best.x, y: EYE_HEIGHT, z: best.z };
 }
 
 export function outsideChildSpot(
   world: World,
   parentId: string,
   childId: string,
-): { x: number; y: number; z: number } {
+): XyzPoint {
   const child = findNode(world, childId);
   const keys = walkableCellKeys(world, parentId);
   if (!child || keys.size === 0) return southRimStart(world, parentId);
   const southOfChild = { x: child.pose.x + child.pose.width / 2, z: child.pose.z - 0.5 };
   const spot = clampToWalkable(southOfChild, keys);
-  return { x: spot.x, y: 4, z: spot.z };
+  return { x: spot.x, y: EYE_HEIGHT, z: spot.z };
 }

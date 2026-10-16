@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Edge, Node, Pose, World } from "@sw3d/model";
 import { createSceneGraph, southRimStart, walkableCellKeys } from "./scene.js";
+import { EDGE_KIND, EYE_HEIGHT, NODE_KIND, WORLD_VERSION } from "./types.js";
 
 function pose(x: number, z: number, width: number, depth: number, height = 8): Pose {
   return { x, z, width, depth, height };
@@ -32,18 +33,18 @@ function makeEdge(id: string, parentId: string, from: string, to: string, kind: 
 
 function fixture(): World {
   return {
-    version: 1,
+    version: WORLD_VERSION,
     name: "dialectic",
     nodes: [
-      makeNode({ id: "city", kind: "city", name: "dialectic", parentId: null, path: "", pose: pose(0, 0, 40, 30), mass: 4 }),
-      makeNode({ id: "core", kind: "district", name: "core", parentId: "city", path: "packages/core", pose: pose(4, 4, 10, 10), mass: 2 }),
-      makeNode({ id: "agents", kind: "building", name: "agents", parentId: "core", path: "packages/core/src/agents", pose: pose(6, 6, 10, 10) }),
-      makeNode({ id: "prompt", kind: "box", name: "Prompt", parentId: "agents", path: "packages/core/src/agents/prompt.ts", pose: pose(8, 8, 10, 10) }),
-      makeNode({ id: "lodash", kind: "portal", name: "lodash", parentId: "city", path: "", pose: pose(16, 26, 8, 8) }),
+      makeNode({ id: "city", kind: NODE_KIND.CITY, name: "dialectic", parentId: null, path: "", pose: pose(0, 0, 40, 30), mass: 4 }),
+      makeNode({ id: "core", kind: NODE_KIND.DISTRICT, name: "core", parentId: "city", path: "packages/core", pose: pose(4, 4, 10, 10), mass: 2 }),
+      makeNode({ id: "agents", kind: NODE_KIND.BUILDING, name: "agents", parentId: "core", path: "packages/core/src/agents", pose: pose(6, 6, 10, 10) }),
+      makeNode({ id: "prompt", kind: NODE_KIND.BOX, name: "Prompt", parentId: "agents", path: "packages/core/src/agents/prompt.ts", pose: pose(8, 8, 10, 10) }),
+      makeNode({ id: "lodash", kind: NODE_KIND.PORTAL, name: "lodash", parentId: "city", path: "", pose: pose(16, 26, 8, 8) }),
     ],
     edges: [
-      makeEdge("road-city", "city", "core", "lodash", "portal"),
-      makeEdge("road-core", "core", "agents", "agents", "road"),
+      makeEdge("road-city", "city", "core", "lodash", EDGE_KIND.PORTAL),
+      makeEdge("road-core", "core", "agents", "agents", EDGE_KIND.ROAD),
     ],
     warnings: [],
   };
@@ -78,8 +79,8 @@ describe("walkableCellKeys", () => {
 });
 
 describe("southRimStart", () => {
-  it("stands on the southern walkable cell center at eye height 4", () => {
+  it("stands on the southern walkable cell center at eye height", () => {
     const start = southRimStart(fixture(), "city");
-    expect(start).toEqual({ x: 19, y: 4, z: 1 });
+    expect(start).toEqual({ x: 19, y: EYE_HEIGHT, z: 1 });
   });
 });

@@ -10,6 +10,7 @@ import {
   startLoadedWorld,
   walkDirection,
 } from "./helpers.js";
+import { EDGE_KIND, MOVE_KEY, NODE_KIND, WORLD_VERSION, type MoveKeys } from "./types.js";
 
 function pose(x: number, z: number, width = 10, depth = 10, height = 8): Pose {
   return { x, z, width, depth, height };
@@ -48,7 +49,7 @@ function edge(fields: {
 }): Edge {
   return {
     id: fields.id,
-    kind: fields.kind ?? "road",
+    kind: fields.kind ?? EDGE_KIND.ROAD,
     parentId: fields.parentId,
     from: fields.from,
     to: fields.to,
@@ -59,18 +60,18 @@ function edge(fields: {
 
 function world(): World {
   return {
-    version: 1,
+    version: WORLD_VERSION,
     name: "dialectic",
     nodes: [
-      node({ id: "city", kind: "city", name: "dialectic", parentId: null, path: "", mass: 3, pose: pose(0, 0, 40, 40) }),
-      node({ id: "core", kind: "district", name: "core", parentId: "city", path: "packages/core", mass: 2, pose: pose(2, 2, 20, 20), packageName: "dialectic-core" }),
-      node({ id: "agents", kind: "building", name: "agents", parentId: "core", path: "packages/core/src/agents", mass: 1, pose: pose(4, 4) }),
-      node({ id: "box", kind: "box", name: "Prompt", parentId: "agents", path: "packages/core/src/agents/prompt.ts", pose: pose(6, 6) }),
-      node({ id: "portal", kind: "portal", name: "lodash", parentId: "city", path: "", packageName: "lodash" }),
-      node({ id: "other", kind: "district", name: "cli", parentId: "city", path: "packages/cli", pose: pose(24, 2) }),
+      node({ id: "city", kind: NODE_KIND.CITY, name: "dialectic", parentId: null, path: "", mass: 3, pose: pose(0, 0, 40, 40) }),
+      node({ id: "core", kind: NODE_KIND.DISTRICT, name: "core", parentId: "city", path: "packages/core", mass: 2, pose: pose(2, 2, 20, 20), packageName: "dialectic-core" }),
+      node({ id: "agents", kind: NODE_KIND.BUILDING, name: "agents", parentId: "core", path: "packages/core/src/agents", mass: 1, pose: pose(4, 4) }),
+      node({ id: "box", kind: NODE_KIND.BOX, name: "Prompt", parentId: "agents", path: "packages/core/src/agents/prompt.ts", pose: pose(6, 6) }),
+      node({ id: "portal", kind: NODE_KIND.PORTAL, name: "lodash", parentId: "city", path: "", packageName: "lodash" }),
+      node({ id: "other", kind: NODE_KIND.DISTRICT, name: "cli", parentId: "city", path: "packages/cli", pose: pose(24, 2) }),
     ],
     edges: [
-      edge({ id: "e-out", parentId: "city", from: "core", to: "portal", weight: 2, kind: "portal" }),
+      edge({ id: "e-out", parentId: "city", from: "core", to: "portal", weight: 2, kind: EDGE_KIND.PORTAL }),
       edge({ id: "e-in", parentId: "city", from: "other", to: "core", weight: 4 }),
       edge({ id: "e-deep", parentId: "core", from: "agents", to: "agents", weight: 1 }),
     ],
@@ -127,24 +128,29 @@ describe("clampToWalkable", () => {
 });
 
 describe("walkDirection", () => {
-  const idle = { w: false, a: false, s: false, d: false };
+  const idle: MoveKeys = {
+    [MOVE_KEY.FORWARD]: false,
+    [MOVE_KEY.LEFT]: false,
+    [MOVE_KEY.BACK]: false,
+    [MOVE_KEY.RIGHT]: false,
+  };
 
   it("strafes left on A and right on D when looking down -Z", () => {
     const forward = { x: 0, y: 0, z: -1 };
-    expect(walkDirection(forward, { ...idle, a: true })).toEqual({ x: -1, z: 0 });
-    expect(walkDirection(forward, { ...idle, d: true })).toEqual({ x: 1, z: 0 });
+    expect(walkDirection(forward, { ...idle, [MOVE_KEY.LEFT]: true })).toEqual({ x: -1, z: 0 });
+    expect(walkDirection(forward, { ...idle, [MOVE_KEY.RIGHT]: true })).toEqual({ x: 1, z: 0 });
   });
 
   it("strafes relative to the look direction", () => {
     const forward = { x: 1, y: 0, z: 0 };
-    expect(walkDirection(forward, { ...idle, a: true })).toEqual({ x: 0, z: -1 });
-    expect(walkDirection(forward, { ...idle, d: true })).toEqual({ x: 0, z: 1 });
+    expect(walkDirection(forward, { ...idle, [MOVE_KEY.LEFT]: true })).toEqual({ x: 0, z: -1 });
+    expect(walkDirection(forward, { ...idle, [MOVE_KEY.RIGHT]: true })).toEqual({ x: 0, z: 1 });
   });
 
   it("walks forward on W and back on S", () => {
     const forward = { x: 0, y: 0, z: -1 };
-    expect(walkDirection(forward, { ...idle, w: true })).toEqual({ x: 0, z: -1 });
-    expect(walkDirection(forward, { ...idle, s: true })).toEqual({ x: 0, z: 1 });
+    expect(walkDirection(forward, { ...idle, [MOVE_KEY.FORWARD]: true })).toEqual({ x: 0, z: -1 });
+    expect(walkDirection(forward, { ...idle, [MOVE_KEY.BACK]: true })).toEqual({ x: 0, z: 1 });
   });
 });
 
@@ -158,7 +164,7 @@ describe("assertWorldVersion", () => {
   it("rejects a world whose version is not 1", () => {
     expect(() => assertWorldVersion({ version: 2 })).toThrow(/another version \(2\)/);
     expect(() => assertWorldVersion({ version: 0 })).toThrow(/another version \(0\)/);
-    expect(() => assertWorldVersion({ version: 1 })).not.toThrow();
+    expect(() => assertWorldVersion({ version: WORLD_VERSION })).not.toThrow();
   });
 });
 
@@ -173,13 +179,13 @@ describe("startLoadedWorld", () => {
     );
     expect(started).toEqual([]);
     expect(messages).toEqual([
-      "This world.json is from another version (2). This viewer reads version 1.",
+      `This world.json is from another version (2). This viewer reads version ${WORLD_VERSION}.`,
     ]);
   });
 
   it("starts a scene for version 1", () => {
     const started: unknown[] = [];
-    startLoadedWorld({ version: 1 }, (world) => started.push(world), () => {});
-    expect(started).toEqual([{ version: 1 }]);
+    startLoadedWorld({ version: WORLD_VERSION }, (world) => started.push(world), () => {});
+    expect(started).toEqual([{ version: WORLD_VERSION }]);
   });
 });
