@@ -46,11 +46,11 @@ The light blue rectangle is `@sw3d/viewer`. Parallelograms are third-party libra
 
 **`@sw3d/model`** (runtime). The viewer reads a `World`: its `version`, `nodes`, and `edges`. Node pose, kind, parent, name, and path become footprints and walk limits. Edge kind, weight, endpoints, and polyline become the lines on the ground. That finished document is the only model data this package uses.
 
-**`three`** (runtime, `0.170.0`). `main.ts` uses it for the WebGL renderer, scene, perspective camera, lights, box meshes, raycaster, and frame clock. `scene.ts` and `helpers.ts` stay free of Three.js so layout math can be tested without a GPU.
+**`three`** (runtime, `0.170.0`). `main.ts` uses it for the WebGL renderer, scene, perspective camera, lights, box meshes for footprints and edges, sprites with sprite materials and canvas textures for name signs, raycaster, and frame clock. `scene.ts` and `helpers.ts` stay free of Three.js so layout math can be tested without a GPU.
 
 **`vite`** (build). Bundles the page into `dist/index.html` and `dist/assets/viewer.js`. `base: "./"` makes those asset URLs relative, so the same files work when analyze copies them into a snapshot directory.
 
-**`vitest`** and **`@vitest/coverage-v8`** (test). Run the unit tests for `helpers.ts` and `scene.ts`. The Nx `test` target invokes Vitest through the local executor in `packages/viewer/executors`.
+**`vitest`** and **`@vitest/coverage-v8`** (test). Run the unit tests for `helpers.ts` and `scene.ts`, and `main.spec.ts`, which imports `main.ts` and calls `removeDrawnMeshes`. `main.ts` boots the page only when `typeof document !== "undefined"`, so a Node test can import it without fetching the world. The Nx `test` target invokes Vitest through the local executor in `packages/viewer/executors`.
 
 **`@types/three`** (compile). TypeScript definitions for the `three` import. They are not shipped in the browser bundle.
 
@@ -86,6 +86,9 @@ flowchart TB
   FootprintMesh["FootprintMesh"]
   EdgeMesh["EdgeMesh"]
   SceneGraph["SceneGraph"]
+  NameSign["NameSign"]
+  SignSpritePose["SignSpritePose"]
+  signSpritePose["signSpritePose"]
   CellCorner["CellCorner"]
 
   World --> Node
@@ -100,12 +103,14 @@ flowchart TB
   EdgeMesh --> XzPoint
   SceneGraph --> FootprintMesh
   SceneGraph --> EdgeMesh
-  SceneGraph --> SceneMeshLabels["labels: id + text"]
+  SceneGraph --> NameSign
+  signSpritePose -->|"consumes"| NameSign
+  signSpritePose -->|"returns"| SignSpritePose
   CellCorner --> XzPoint
   StreetStage --> ThreeTypes
 ```
 
-`StreetStage` is the only viewer type that depends on Three.js. `CellCorner` is private to `helpers.ts`. `SceneGraph.labels` is an inline `{ id, text }` list, not its own named type.
+`StreetStage` is the only viewer type that depends on Three.js. `CellCorner` is private to `helpers.ts`. `NameSign` is the id, text, and midpoint of the south edge of the roof for one block. `signSpritePose` lifts above that point and turns it and a text aspect ratio into `SignSpritePose`.
 
 ### `types.ts`
 
@@ -122,6 +127,7 @@ Holds the numbers, key names, colors, DOM selectors, and small structures the ot
 | `EdgeEnd` | Which end of an edge a panel row names: `to` for "depends on", `from` for "used by". |
 | Movement and camera constants | Walk and sprint speed, eye height, field of view, look sensitivity, pitch limit, and the longest frame step. |
 | Courtyard constants | Glide duration, overhead camera height, street cell size, edge thickness, and colors. |
+| Name-sign constants | Sprite height `1.2`, roof gap `0.3`, plaque `#0e1116`, and glyph color `#f4f6f8`. |
 | `WORLD_VERSION`, `WORLD_URL` | The document version this build can load, and the relative URL it fetches (`./world.json`). |
 | `VIEW_ELEMENT`, `MOVE_KEY`, `ACTION_KEY` | CSS selectors and keyboard keys, so those strings live in one place. |
 
@@ -151,13 +157,16 @@ Turns one parent node of a `World` into data `main.ts` can draw and walk. It doe
 | --- | --- |
 | `FootprintMesh` | One child block: id, kind, name, path, and the pose box (x, z, width, depth, height). |
 | `EdgeMesh` | One dependency line in the current courtyard: endpoints, kind, weight, and the ground polyline. |
-| `SceneGraph` | The footprints, edges, and label texts for a single `parentId`. |
-| `createSceneGraph` | Collects children of `parentId` as footprints (skipping a nested city) and edges whose `parentId` matches. Fills `labels` with each child's name. |
+| `NameSign` | One block's id, display name, and the midpoint of the south edge of the roof (`x`, `y`, `z`); `signSpritePose` lifts above that point. |
+| `SignSpritePose` | Sprite center and world width and height for one sign. |
+| `SceneGraph` | The footprints, edges, and name signs for a single `parentId`. |
+| `createSceneGraph` | Collects children of `parentId` as footprints (skipping a nested city) and edges whose `parentId` matches. Fills `signs` with each district, building, box, and portal whose name is not blank. |
+| `signSpritePose` | Places the sprite center `SIGN_GAP + SIGN_HEIGHT / 2` above the sign's roof point, so the plaque's bottom edge sits one gap (`0.3`) above that point. The roof point is the midpoint of the roof's south edge (`z = pose.z`), not the roof center. Sets the world size from `SIGN_HEIGHT` and the text aspect. |
 | `walkableCellKeys` | Every `CELL_SIZE` square inside the parent pose that does not overlap a district, building, or box. Portals stay walkable. Keys are `"x,z"` of the cell's minimum corner. |
 | `southRimStart` | Eye-height point on the southernmost walkable cell, closest to the parent's horizontal center. Used when entering a courtyard. |
 | `outsideChildSpot` | Eye-height point just south of a child, snapped onto a walkable cell of the parent. Used when leaving that child. Falls back to `southRimStart` when the child is missing or the parent has no walkable cells. |
 
-`main.ts` draws `footprints` and `edges`. It does not draw `labels`.
+`main.ts` draws `footprints`, `edges`, and `signs`.
 
 ### `main.ts`
 
@@ -169,8 +178,9 @@ Owns the running session after the world has loaded. It is the only module that 
 | `readViewerShell` | Looks up the elements in `index.html` and fails if one is missing or the wrong element type. |
 | `createStreetStage` | Builds the renderer, dark scene, perspective camera, ambient light, and sun. |
 | `start` | Session state: current courtyard (`parentId`), selection, walkable cells, overhead flag, glide flag, yaw, pitch, and held keys. Wires input and the animation loop. |
-| `rebuild` | Drops drawn meshes, asks `createSceneGraph` and `walkableCellKeys` for the current parent, adds footprint and edge meshes, and refreshes the breadcrumb and panel. Lights stay. |
-| `addFootprint`, `addEdge` | Turn a `FootprintMesh` or `EdgeMesh` into colored box meshes. A footprint stores its node id on `userData` so picking can find it. |
+| `rebuild` | Calls `removeDrawnMeshes`, asks `createSceneGraph` and `walkableCellKeys` for the current parent, adds footprint, sign, and edge meshes, and refreshes the breadcrumb and panel. |
+| `removeDrawnMeshes` | Exported. Removes every scene child that is not a light, and disposes a sign sprite's texture and material first. Lights stay. `main.spec.ts` calls it. |
+| `addFootprint`, `addNameSign`, `addEdge` | Turn a footprint, name sign, or edge into scene objects. A footprint and a name sign store the node id on `userData` so picking can find either one. Removing a sign disposes its texture and material. |
 | Panel and breadcrumb | The panel shows the selected child's name, kind, path, and the two edge lists. The breadcrumb is one button per ancestor; clicking an ancestor leaves toward that courtyard. |
 
 `index.html` supplies the canvas (`#view`), the detail panel, the breadcrumb nav, and the full-screen version message. Those ids match `VIEW_ELEMENT`.
@@ -200,15 +210,15 @@ sequenceDiagram
   Main->>Main: read shell, require a city node
   Main->>Three: createStreetStage
   Main->>Scene: southRimStart, createSceneGraph, walkableCellKeys
-  Scene-->>Main: camera spot, footprints, edges, cells
-  Main->>Three: add meshes and start the frame loop
+  Scene-->>Main: camera spot, footprints, edges, signs, cells
+  Main->>Three: add meshes, name signs, and start the frame loop
 ```
 
 `start` looks up the shell and the city node. A world with no city shows a message and returns. Otherwise it creates the street stage, places the camera with `southRimStart` of the city, and calls `rebuild`.
 
 ### Draw the current courtyard
 
-`rebuild` removes every scene child that is not a light. `createSceneGraph` keeps nodes whose `parentId` is the current courtyard and turns each non-city child into a `FootprintMesh`. Edges with the same `parentId` become `EdgeMesh` values. `addFootprint` colors each block from `FOOTPRINT_COLOR`. `addEdge` colors a portal edge purple and a road edge amber, and widens the box by the edge weight. `walkableCellKeys` replaces the set used by walking.
+`rebuild` removes every scene child that is not a light. `createSceneGraph` keeps nodes whose `parentId` is the current courtyard and turns each non-city child into a `FootprintMesh`. Edges with the same `parentId` become `EdgeMesh` values. `addFootprint` colors each block from `FOOTPRINT_COLOR`. `addEdge` colors a portal edge purple and a road edge amber, and widens the box by the edge weight. `addNameSign` paints `node.name` onto an opaque plaque and adds a sprite just above the midpoint of that block's south roof edge, so the sign is seen from the street south of the block. The sprite faces the camera. Its world height stays `SIGN_HEIGHT`, and perspective makes a farther sign smaller. Rebuilding the courtyard disposes each previous sign's texture and material. `walkableCellKeys` replaces the set used by walking.
 
 The breadcrumb is rebuilt from `chainIds` (ids) and `breadcrumb` (names). The panel is hidden until a selected node is still a child of this courtyard.
 
@@ -230,7 +240,7 @@ A click on the canvas requests pointer lock. While the pointer is locked, the vi
 
 ### Select a block
 
-A click also raycasts from the cursor into the scene. The first mesh whose `userData.id` is a string becomes the selection. `renderPanel` loads that node and calls `incidentEdges`. "Depends on" lists the other end of edges that leave the node. "Used by" lists the other end of edges that arrive. A portal's label prefers `packageName`. Clicking empty space clears the hit, and the panel hides.
+A click also raycasts from the cursor into the scene. The first hit whose `userData.id` is a string becomes the selection. A sign and its block share that id, so clicking the sign selects the block. `renderPanel` loads that node and calls `incidentEdges`. "Depends on" lists the other end of edges that leave the node. "Used by" lists the other end of edges that arrive. A portal's label prefers `packageName`. Clicking empty space clears the hit, and the panel hides.
 
 ### Enter a courtyard
 

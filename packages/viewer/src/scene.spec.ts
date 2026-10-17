@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Edge, Node, Pose, World } from "@sw3d/model";
-import { createSceneGraph, southRimStart, walkableCellKeys } from "./scene.js";
+import { createSceneGraph, signSpritePose, southRimStart, walkableCellKeys } from "./scene.js";
 import { EDGE_KIND, EYE_HEIGHT, NODE_KIND, WORLD_VERSION } from "./types.js";
 
 function pose(x: number, z: number, width: number, depth: number, height = 8): Pose {
@@ -56,7 +56,10 @@ describe("createSceneGraph", () => {
     expect(graph.parentId).toBe("city");
     expect(graph.footprints.map((item) => item.id).sort()).toEqual(["core", "lodash"]);
     expect(graph.edges.map((item) => item.id)).toEqual(["road-city"]);
-    expect(graph.labels.map((item) => item.text).sort()).toEqual(["core", "lodash"]);
+    expect(graph.signs).toEqual([
+      { id: "core", text: "core", x: 9, y: 8, z: 4 },
+      { id: "lodash", text: "lodash", x: 20, y: 8, z: 26 },
+    ]);
     expect(JSON.stringify(graph)).not.toContain("export const");
     expect(Object.prototype.hasOwnProperty.call(graph, "source")).toBe(false);
   });
@@ -66,6 +69,45 @@ describe("createSceneGraph", () => {
     expect(graph.footprints.map((item) => item.id)).toEqual(["agents"]);
     expect(graph.edges.map((item) => item.id)).toEqual(["road-core"]);
     expect(graph.footprints.some((item) => item.id === "prompt")).toBe(false);
+    expect(graph.signs).toEqual([{ id: "agents", text: "agents", x: 11, y: 8, z: 6 }]);
+  });
+
+  it("signs the box inside a building and no other child", () => {
+    const graph = createSceneGraph(fixture(), "agents");
+    expect(graph.signs).toEqual([{ id: "prompt", text: "Prompt", x: 13, y: 8, z: 8 }]);
+  });
+
+  it("skips a child whose name is empty or only spaces", () => {
+    const world = fixture();
+    world.nodes.push(
+      makeNode({ id: "empty", kind: NODE_KIND.BOX, name: "", parentId: "city", path: "empty.ts", pose: pose(0, 0, 2, 2) }),
+      makeNode({ id: "spaces", kind: NODE_KIND.BOX, name: "   ", parentId: "city", path: "spaces.ts", pose: pose(2, 0, 2, 2) }),
+    );
+    const graph = createSceneGraph(world, "city");
+    expect(graph.signs.map((sign) => sign.id)).toEqual(["core", "lodash"]);
+    expect(graph.footprints.map((item) => item.id)).toEqual(["core", "lodash", "empty", "spaces"]);
+  });
+});
+
+describe("signSpritePose", () => {
+  const sign = { id: "core", text: "core", x: 9, y: 8, z: 9 };
+
+  it("lifts a square plaque above the roof by the gap", () => {
+    const pose = signSpritePose(sign, 1);
+    expect(pose.x).toBe(9);
+    expect(pose.z).toBe(9);
+    expect(pose.y).toBeCloseTo(8.9);
+    expect(pose.height).toBeCloseTo(1.2);
+    expect(pose.width).toBeCloseTo(1.2);
+  });
+
+  it("widens a long plaque with the text aspect", () => {
+    expect(signSpritePose(sign, 4).width).toBeCloseTo(4.8);
+    expect(signSpritePose(sign, 4).height).toBeCloseTo(1.2);
+  });
+
+  it("keeps a short plaque at least as wide as it is tall", () => {
+    expect(signSpritePose(sign, 0.5).width).toBeCloseTo(1.2);
   });
 });
 

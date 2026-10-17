@@ -138,6 +138,15 @@ export const FOOTPRINT_COLOR: Record<FootprintKind, number> = {
   [NODE_KIND.PORTAL]: 0xae3ec9,
 };
 
+/** Height of a name-sign sprite, in world units. */
+export const SIGN_HEIGHT = 1.2;
+/** Gap between a block's roof and the bottom of its name sign, in world units. */
+export const SIGN_GAP = 0.3;
+/** Canvas fill for a name-sign plaque. */
+export const SIGN_PLAQUE = "#0e1116";
+/** Canvas fill for name-sign glyphs. */
+export const SIGN_TEXT = "#f4f6f8";
+
 /** A position on the ground plane. */
 export interface XzPoint {
   x: number;

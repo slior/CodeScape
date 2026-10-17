@@ -11,10 +11,12 @@ import {
 import {
   createSceneGraph,
   outsideChildSpot,
+  signSpritePose,
   southRimStart,
   walkableCellKeys,
   type EdgeMesh,
   type FootprintMesh,
+  type NameSign,
 } from "./scene.js";
 import {
   ACTION_KEY,
@@ -44,6 +46,8 @@ import {
   OVERHEAD_MIN_SPAN,
   OVERHEAD_PITCH,
   PITCH_LIMIT_MARGIN,
+  SIGN_PLAQUE,
+  SIGN_TEXT,
   STREET_YAW,
   SUN_INTENSITY,
   SUN_POSITION,
@@ -178,12 +182,62 @@ function createStreetStage(canvas: HTMLCanvasElement): StreetStage {
   return { renderer, scene, camera };
 }
 
-function removeDrawnMeshes(scene: THREE.Scene): void {
+function disposeSprite(object: THREE.Object3D): void {
+  if (!(object instanceof THREE.Sprite)) return;
+  const material = object.material;
+  if (material.map) material.map.dispose();
+  material.dispose();
+}
+
+export function removeDrawnMeshes(scene: THREE.Scene): void {
   for (let index = scene.children.length - 1; index >= 0; index -= 1) {
     const child = scene.children[index];
     if (!child || child instanceof THREE.Light) continue;
+    disposeSprite(child);
     scene.remove(child);
   }
+}
+
+const SIGN_FONT = "64px sans-serif";
+const SIGN_FONT_PX = 64;
+
+function signCanvas(text: string): { texture: THREE.CanvasTexture; aspect: number } {
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("missing canvas 2d context");
+  const pad = SIGN_FONT_PX / 4;
+  context.font = SIGN_FONT;
+  const textWidth = Math.ceil(context.measureText(text).width);
+  const height = SIGN_FONT_PX + pad * 2;
+  canvas.width = Math.max(textWidth + pad * 2, height);
+  canvas.height = height;
+  context.font = SIGN_FONT;
+  context.fillStyle = SIGN_PLAQUE;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = SIGN_TEXT;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(text, canvas.width / 2, canvas.height / 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return { texture, aspect: canvas.width / canvas.height };
+}
+
+function addNameSign(scene: THREE.Scene, sign: NameSign): THREE.Sprite {
+  const drawn = signCanvas(sign.text);
+  const material = new THREE.SpriteMaterial({
+    map: drawn.texture,
+    transparent: false,
+    depthTest: true,
+    depthWrite: true,
+  });
+  const sprite = new THREE.Sprite(material);
+  const pose = signSpritePose(sign, drawn.aspect);
+  sprite.position.set(pose.x, pose.y, pose.z);
+  sprite.scale.set(pose.width, pose.height, 1);
+  sprite.userData = { id: sign.id };
+  scene.add(sprite);
+  return sprite;
 }
 
 function addFootprint(scene: THREE.Scene, foot: FootprintMesh): THREE.Mesh {
@@ -316,6 +370,7 @@ function start(world: World): void {
     removeDrawnMeshes(scene);
     const graph = createSceneGraph(world, parentId);
     for (const foot of graph.footprints) addFootprint(scene, foot);
+    for (const sign of graph.signs) addNameSign(scene, sign);
     for (const edge of graph.edges) addEdge(scene, edge);
     walkable = walkableCellKeys(world, parentId);
     renderBreadcrumb();
@@ -499,4 +554,4 @@ function start(world: World): void {
   });
 }
 
-void boot();
+if (typeof document !== "undefined") void boot();
