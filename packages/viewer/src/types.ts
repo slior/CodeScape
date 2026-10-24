@@ -19,6 +19,8 @@ export const CAMERA_FAR = 2000;
 export const CAMERA_ROTATION_ORDER = "YXZ";
 /** Yaw applied when the camera is placed back on a street. */
 export const STREET_YAW = Math.PI;
+/** Pitch applied when the camera is placed back on a street. Level gaze. */
+export const STREET_PITCH = 0;
 /** Gap below a right angle so pitch never looks straight up or down. */
 export const PITCH_LIMIT_MARGIN = 0.05;
 /** Radians of look change per pixel of pointer-lock movement. */
@@ -33,6 +35,8 @@ export const OVERHEAD_MIN_SPAN = 8;
 export const OVERHEAD_CLEARANCE = 20;
 /** Pitch that looks straight down from the overhead camera. */
 export const OVERHEAD_PITCH = -Math.PI / 2;
+/** Yaw applied while the overhead camera looks straight down. */
+export const OVERHEAD_YAW = 0;
 /** Base width of a dependency edge before its weight is applied. */
 export const EDGE_WIDTH_BASE = 0.35;
 /** Extra edge width added for each unit of edge weight. */
@@ -138,14 +142,27 @@ export const FOOTPRINT_COLOR: Record<FootprintKind, number> = {
   [NODE_KIND.PORTAL]: 0xae3ec9,
 };
 
-/** Height of a name-sign sprite, in world units. */
+/** Wall plaque height before the face-fit scale, in world units. */
 export const SIGN_HEIGHT = 1.2;
-/** Gap between a block's roof and the bottom of its name sign, in world units. */
-export const SIGN_GAP = 0.3;
+/** Space between the roof and the roof sprite's center, in world units. */
+export const SIGN_GAP = 2;
+/** How far a wall plaque sits outside its face, in world units. */
+export const SIGN_WALL_OFFSET = 0.05;
+/** Largest fraction of a face or of the roof the plaque may cover. */
+export const SIGN_FIT = 0.8;
 /** Canvas fill for a name-sign plaque. */
 export const SIGN_PLAQUE = "#0e1116";
 /** Canvas fill for name-sign glyphs. */
 export const SIGN_TEXT = "#f4f6f8";
+
+/** Which name plaque a mesh is. `userData.role` stores one of these. */
+export const SIGN_ROLE = {
+  WALL: "wall",
+  ROOF: "roof",
+} as const;
+
+/** `userData.role` on a wall plane or a roof sprite. */
+export type SignRole = (typeof SIGN_ROLE)[keyof typeof SIGN_ROLE];
 
 /** A position on the ground plane. */
 export interface XzPoint {

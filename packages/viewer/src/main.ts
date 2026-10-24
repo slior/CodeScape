@@ -11,9 +11,10 @@ import {
 import {
   createSceneGraph,
   outsideChildSpot,
-  signSpritePose,
+  roofSignPose,
   southRimStart,
   walkableCellKeys,
+  wallSignPoses,
   type EdgeMesh,
   type FootprintMesh,
   type NameSign,
@@ -45,9 +46,12 @@ import {
   OVERHEAD_CLEARANCE,
   OVERHEAD_MIN_SPAN,
   OVERHEAD_PITCH,
+  OVERHEAD_YAW,
   PITCH_LIMIT_MARGIN,
   SIGN_PLAQUE,
+  SIGN_ROLE,
   SIGN_TEXT,
+  STREET_PITCH,
   STREET_YAW,
   SUN_INTENSITY,
   SUN_POSITION,
@@ -56,6 +60,7 @@ import {
   WORLD_URL,
   type EdgeEnd,
   type Keys,
+  type SignRole,
   type StreetStage,
   type ViewerShell,
   type XyzPoint,
@@ -182,34 +187,102 @@ function createStreetStage(canvas: HTMLCanvasElement): StreetStage {
   return { renderer, scene, camera };
 }
 
-function disposeSprite(object: THREE.Object3D): void {
-  if (!(object instanceof THREE.Sprite)) return;
-  const material = object.material;
-  if (material.map) material.map.dispose();
-  material.dispose();
+function disposeMap(map: THREE.Texture | null, seen: Set<THREE.Texture>): void {
+  if (!map || seen.has(map)) return;
+  seen.add(map);
+  map.dispose();
 }
 
+interface DrawnMark {
+  id?: string;
+  role?: SignRole;
+}
+
+function readDrawnMark(object: THREE.Object3D): DrawnMark {
+  const data = object.userData as { id?: unknown; role?: unknown };
+  const mark: DrawnMark = {};
+  if (typeof data.id === "string") mark.id = data.id;
+  if (data.role === SIGN_ROLE.WALL || data.role === SIGN_ROLE.ROOF) mark.role = data.role;
+  return mark;
+}
+
+function markDrawn(object: THREE.Object3D, id: string, role?: SignRole): void {
+  object.userData = role === undefined ? { id } : { id, role };
+}
+
+function disposeSign(object: THREE.Object3D, seen: Set<THREE.Texture>): void {
+  const role = readDrawnMark(object).role;
+  if (role === SIGN_ROLE.ROOF && object instanceof THREE.Sprite) {
+    disposeMap(object.material.map, seen);
+    object.material.dispose();
+    return;
+  }
+  if (role === SIGN_ROLE.WALL && object instanceof THREE.Mesh && object.material instanceof THREE.MeshBasicMaterial) {
+    disposeMap(object.material.map, seen);
+    object.material.dispose();
+    object.geometry.dispose();
+  }
+}
+
+/**
+ * Removes courtyard meshes from the scene and frees their sign textures.
+ * Lights stay. A texture shared by wall plaques and the roof sprite is disposed once.
+ *
+ * @param scene - Street scene whose drawn courtyard should be dropped.
+ */
 export function removeDrawnMeshes(scene: THREE.Scene): void {
+  const seen = new Set<THREE.Texture>();
   for (let index = scene.children.length - 1; index >= 0; index -= 1) {
     const child = scene.children[index];
     if (!child || child instanceof THREE.Light) continue;
-    disposeSprite(child);
+    disposeSign(child, seen);
     scene.remove(child);
   }
 }
 
-const SIGN_FONT = "64px sans-serif";
+/**
+ * Shows wall plaques on the street and roof sprites overhead.
+ *
+ * @param scene - Street scene that holds the name signs.
+ * @param overhead - True when the camera is above the courtyard looking down.
+ */
+export function setSignVisibility(scene: THREE.Scene, overhead: boolean): void {
+  for (const child of scene.children) {
+    const role = readDrawnMark(child).role;
+    if (role === SIGN_ROLE.WALL) child.visible = !overhead;
+    if (role === SIGN_ROLE.ROOF) child.visible = overhead;
+  }
+}
+
+/** Raster size of name-sign glyphs, in CSS pixels. */
 const SIGN_FONT_PX = 64;
+/** Typeface for name-sign glyphs. */
+const SIGN_FONT_FAMILY = "sans-serif";
+const SIGN_FONT = `${SIGN_FONT_PX}px ${SIGN_FONT_FAMILY}`;
+/** Canvas padding on each side of the glyphs, in CSS pixels. */
+const SIGN_PAD_PX = SIGN_FONT_PX / 4;
+/** Sprite depth scale. Name signs are flat, so depth stays at one. */
+const SIGN_SPRITE_DEPTH = 1;
+/** Street mode. Wall plaques show, the roof sprite is hidden, and the camera starts off overhead. */
+const START_OVERHEAD = false;
+/** Smallest viewport height used when computing camera aspect, in CSS pixels. */
+const MIN_VIEW_HEIGHT_PX = 1;
+
+/** Opacity and depth settings shared by wall plaques and the roof sprite. */
+const SIGN_SURFACE = {
+  transparent: false,
+  depthTest: true,
+  depthWrite: true,
+} as const;
 
 function signCanvas(text: string): { texture: THREE.CanvasTexture; aspect: number } {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
   if (!context) throw new Error("missing canvas 2d context");
-  const pad = SIGN_FONT_PX / 4;
   context.font = SIGN_FONT;
   const textWidth = Math.ceil(context.measureText(text).width);
-  const height = SIGN_FONT_PX + pad * 2;
-  canvas.width = Math.max(textWidth + pad * 2, height);
+  const height = SIGN_FONT_PX + SIGN_PAD_PX * 2;
+  canvas.width = Math.max(textWidth + SIGN_PAD_PX * 2, height);
   canvas.height = height;
   context.font = SIGN_FONT;
   context.fillStyle = SIGN_PLAQUE;
@@ -223,21 +296,41 @@ function signCanvas(text: string): { texture: THREE.CanvasTexture; aspect: numbe
   return { texture, aspect: canvas.width / canvas.height };
 }
 
-function addNameSign(scene: THREE.Scene, sign: NameSign): THREE.Sprite {
-  const drawn = signCanvas(sign.text);
+function addWallPlaques(scene: THREE.Scene, sign: NameSign, texture: THREE.Texture, aspect: number): void {
+  for (const pose of wallSignPoses(sign, aspect)) {
+    const geometry = new THREE.PlaneGeometry(pose.width, pose.height);
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      ...SIGN_SURFACE,
+      side: THREE.FrontSide,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(pose.x, pose.y, pose.z);
+    mesh.rotation.y = pose.yaw;
+    mesh.visible = !START_OVERHEAD;
+    markDrawn(mesh, sign.id, SIGN_ROLE.WALL);
+    scene.add(mesh);
+  }
+}
+
+function addRoofSprite(scene: THREE.Scene, sign: NameSign, texture: THREE.Texture, aspect: number): void {
+  const roof = roofSignPose(sign, aspect);
   const material = new THREE.SpriteMaterial({
-    map: drawn.texture,
-    transparent: false,
-    depthTest: true,
-    depthWrite: true,
+    map: texture,
+    ...SIGN_SURFACE,
   });
   const sprite = new THREE.Sprite(material);
-  const pose = signSpritePose(sign, drawn.aspect);
-  sprite.position.set(pose.x, pose.y, pose.z);
-  sprite.scale.set(pose.width, pose.height, 1);
-  sprite.userData = { id: sign.id };
+  sprite.position.set(roof.x, roof.y, roof.z);
+  sprite.scale.set(roof.width, roof.height, SIGN_SPRITE_DEPTH);
+  sprite.visible = START_OVERHEAD;
+  markDrawn(sprite, sign.id, SIGN_ROLE.ROOF);
   scene.add(sprite);
-  return sprite;
+}
+
+function addNameSign(scene: THREE.Scene, sign: NameSign): void {
+  const drawn = signCanvas(sign.text);
+  addWallPlaques(scene, sign, drawn.texture, drawn.aspect);
+  addRoofSprite(scene, sign, drawn.texture, drawn.aspect);
 }
 
 function addFootprint(scene: THREE.Scene, foot: FootprintMesh): THREE.Mesh {
@@ -245,7 +338,7 @@ function addFootprint(scene: THREE.Scene, foot: FootprintMesh): THREE.Mesh {
   const material = new THREE.MeshStandardMaterial({ color: FOOTPRINT_COLOR[foot.kind] });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(foot.x + foot.width / 2, foot.height / 2, foot.z + foot.depth / 2);
-  mesh.userData = { id: foot.id };
+  markDrawn(mesh, foot.id);
   scene.add(mesh);
   return mesh;
 }
@@ -274,16 +367,82 @@ function addEdge(scene: THREE.Scene, edge: EdgeMesh): void {
   }
 }
 
-function hitId(intersections: readonly THREE.Intersection[]): string | null {
+/**
+ * Id of a world node the pointer picked or the detail panel is showing, or null when none applies.
+ */
+export type PickedNodeId = string | null;
+
+/**
+ * Returns the node id of the first visible ray hit.
+ *
+ * @param intersections - Hits from the street raycaster, nearest first.
+ * @returns The node id, or null when no visible hit carries a string id.
+ */
+export function hitId(intersections: readonly THREE.Intersection[]): PickedNodeId {
   for (const hit of intersections) {
-    const data = hit.object.userData as { id?: string };
-    if (typeof data.id === "string") return data.id;
+    if (!hit.object.visible) continue;
+    const id = readDrawnMark(hit.object).id;
+    if (id !== undefined) return id;
   }
   return null;
 }
 
 function overheadEyeY(width: number, depth: number): number {
   return Math.max(width, depth, OVERHEAD_MIN_SPAN) + OVERHEAD_CLEARANCE;
+}
+
+interface StreetPose {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+}
+
+function rememberStreet(
+  camera: THREE.PerspectiveCamera,
+  yaw: number,
+  pitch: number,
+  saved: StreetPose,
+): void {
+  saved.x = camera.position.x;
+  saved.y = camera.position.y;
+  saved.z = camera.position.z;
+  saved.yaw = yaw;
+  saved.pitch = pitch;
+}
+
+function placeOverheadCamera(camera: THREE.PerspectiveCamera, parent: Node): void {
+  camera.position.set(
+    parent.pose.x + parent.pose.width / 2,
+    overheadEyeY(parent.pose.width, parent.pose.depth),
+    parent.pose.z + parent.pose.depth / 2,
+  );
+  camera.rotation.order = CAMERA_ROTATION_ORDER;
+  camera.rotation.x = OVERHEAD_PITCH;
+  camera.rotation.y = OVERHEAD_YAW;
+}
+
+function restoreStreetPosition(camera: THREE.PerspectiveCamera, saved: StreetPose): void {
+  camera.position.set(saved.x, saved.y, saved.z);
+}
+
+/** Moves the camera along the courtyard glide. Returns true while the glide is still running. */
+function easeCameraUnfinished(
+  camera: THREE.PerspectiveCamera,
+  origin: THREE.Vector3,
+  spot: XyzPoint,
+  started: number,
+  now: number,
+): boolean {
+  const t = Math.min(1, (now - started) / EASE_DURATION_MS);
+  const amount = smoothstep(t);
+  camera.position.set(
+    lerp(origin.x, spot.x, amount),
+    lerp(origin.y, spot.y, amount),
+    lerp(origin.z, spot.z, amount),
+  );
+  return t < 1;
 }
 
 function stepStreetMotion(
@@ -333,12 +492,12 @@ function start(world: World): void {
   const { renderer, scene, camera } = createStreetStage(shell.canvas);
 
   let parentId = city.id;
-  let selectedId: string | null = null;
+  let selectedId: PickedNodeId = null;
   let walkable = walkableCellKeys(world, parentId);
-  let overhead = false;
+  let overhead = START_OVERHEAD;
   let easing = false;
   let yaw = STREET_YAW;
-  let pitch = 0;
+  let pitch = STREET_PITCH;
   const saved = { x: 0, y: EYE_HEIGHT, z: 0, yaw, pitch };
   const keys: Keys = {
     [MOVE_KEY.FORWARD]: false,
@@ -359,10 +518,10 @@ function start(world: World): void {
   }
 
   function placeStreet(spot: XyzPoint): void {
-    overhead = false;
+    overhead = START_OVERHEAD;
     camera.position.set(spot.x, spot.y, spot.z);
     yaw = STREET_YAW;
-    pitch = 0;
+    pitch = STREET_PITCH;
     applyLook();
   }
 
@@ -410,13 +569,13 @@ function start(world: World): void {
     }
   }
 
-  function centerHit(): string | null {
+  function centerHit(): PickedNodeId {
     pointer.set(0, 0);
     raycaster.setFromCamera(pointer, camera);
     return hitId(raycaster.intersectObjects(scene.children, false));
   }
 
-  function selectId(id: string | null): void {
+  function selectId(id: PickedNodeId): void {
     selectedId = id;
     renderPanel();
   }
@@ -424,18 +583,11 @@ function start(world: World): void {
   function easeTo(spot: XyzPoint, nextParent: string): void {
     if (easing) return;
     easing = true;
-    overhead = false;
+    overhead = START_OVERHEAD;
     const origin = camera.position.clone();
     const started = performance.now();
     const frame = (now: number): void => {
-      const t = Math.min(1, (now - started) / EASE_DURATION_MS);
-      const amount = smoothstep(t);
-      camera.position.set(
-        lerp(origin.x, spot.x, amount),
-        lerp(origin.y, spot.y, amount),
-        lerp(origin.z, spot.z, amount),
-      );
-      if (t < 1) {
+      if (easeCameraUnfinished(camera, origin, spot, started, now)) {
         requestAnimationFrame(frame);
         return;
       }
@@ -448,7 +600,7 @@ function start(world: World): void {
     requestAnimationFrame(frame);
   }
 
-  function enterHit(id: string | null): void {
+  function enterHit(id: PickedNodeId): void {
     const next = enterTarget(world, parentId, id);
     if (!next) return;
     const spot = southRimStart(world, next);
@@ -475,33 +627,23 @@ function start(world: World): void {
     const parent = findNode(world, parentId);
     if (!parent) return;
     if (!overhead) {
-      saved.x = camera.position.x;
-      saved.y = camera.position.y;
-      saved.z = camera.position.z;
-      saved.yaw = yaw;
-      saved.pitch = pitch;
+      rememberStreet(camera, yaw, pitch, saved);
       overhead = true;
-      camera.position.set(
-        parent.pose.x + parent.pose.width / 2,
-        overheadEyeY(parent.pose.width, parent.pose.depth),
-        parent.pose.z + parent.pose.depth / 2,
-      );
-      camera.rotation.order = CAMERA_ROTATION_ORDER;
-      camera.rotation.x = OVERHEAD_PITCH;
-      camera.rotation.y = 0;
-      return;
+      placeOverheadCamera(camera, parent);
+    } else {
+      overhead = START_OVERHEAD;
+      restoreStreetPosition(camera, saved);
+      yaw = saved.yaw;
+      pitch = saved.pitch;
+      applyLook();
     }
-    overhead = false;
-    camera.position.set(saved.x, saved.y, saved.z);
-    yaw = saved.yaw;
-    pitch = saved.pitch;
-    applyLook();
+    setSignVisibility(scene, overhead);
   }
 
   function resize(): void {
     const width = window.innerWidth;
     const height = window.innerHeight;
-    camera.aspect = width / Math.max(height, 1);
+    camera.aspect = width / Math.max(height, MIN_VIEW_HEIGHT_PX);
     camera.updateProjectionMatrix();
     renderer.setSize(width, height);
   }

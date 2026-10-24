@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Edge, Node, Pose, World } from "@sw3d/model";
-import { createSceneGraph, signSpritePose, southRimStart, walkableCellKeys } from "./scene.js";
+import { createSceneGraph, roofSignPose, southRimStart, walkableCellKeys, wallSignPoses } from "./scene.js";
 import { EDGE_KIND, EYE_HEIGHT, NODE_KIND, WORLD_VERSION } from "./types.js";
 
 function pose(x: number, z: number, width: number, depth: number, height = 8): Pose {
@@ -57,8 +57,8 @@ describe("createSceneGraph", () => {
     expect(graph.footprints.map((item) => item.id).sort()).toEqual(["core", "lodash"]);
     expect(graph.edges.map((item) => item.id)).toEqual(["road-city"]);
     expect(graph.signs).toEqual([
-      { id: "core", text: "core", x: 9, y: 8, z: 4 },
-      { id: "lodash", text: "lodash", x: 20, y: 8, z: 26 },
+      { id: "core", text: "core", x: 4, z: 4, width: 10, depth: 10, height: 8 },
+      { id: "lodash", text: "lodash", x: 16, z: 26, width: 8, depth: 8, height: 8 },
     ]);
     expect(JSON.stringify(graph)).not.toContain("export const");
     expect(Object.prototype.hasOwnProperty.call(graph, "source")).toBe(false);
@@ -69,12 +69,16 @@ describe("createSceneGraph", () => {
     expect(graph.footprints.map((item) => item.id)).toEqual(["agents"]);
     expect(graph.edges.map((item) => item.id)).toEqual(["road-core"]);
     expect(graph.footprints.some((item) => item.id === "prompt")).toBe(false);
-    expect(graph.signs).toEqual([{ id: "agents", text: "agents", x: 11, y: 8, z: 6 }]);
+    expect(graph.signs).toEqual([
+      { id: "agents", text: "agents", x: 6, z: 6, width: 10, depth: 10, height: 8 },
+    ]);
   });
 
   it("signs the box inside a building and no other child", () => {
     const graph = createSceneGraph(fixture(), "agents");
-    expect(graph.signs).toEqual([{ id: "prompt", text: "Prompt", x: 13, y: 8, z: 8 }]);
+    expect(graph.signs).toEqual([
+      { id: "prompt", text: "Prompt", x: 8, z: 8, width: 10, depth: 10, height: 8 },
+    ]);
   });
 
   it("skips a child whose name is empty or only spaces", () => {
@@ -89,25 +93,78 @@ describe("createSceneGraph", () => {
   });
 });
 
-describe("signSpritePose", () => {
-  const sign = { id: "core", text: "core", x: 9, y: 8, z: 9 };
+describe("wallSignPoses", () => {
+  const sign = { id: "core", text: "core", x: 4, z: 4, width: 10, depth: 10, height: 8 };
 
-  it("lifts a square plaque above the roof by the gap", () => {
-    const pose = signSpritePose(sign, 1);
+  it("centers a square plaque on each face at eye height", () => {
+    const poses = wallSignPoses(sign, 1);
+    expect(poses.map((pose) => pose.face)).toEqual(["south", "north", "east", "west"]);
+    expect(poses[0]).toMatchObject({ x: 9, y: 4, yaw: Math.PI });
+    expect(poses[0]?.z).toBeCloseTo(3.95);
+    expect(poses[0]?.width).toBeCloseTo(1.2);
+    expect(poses[0]?.height).toBeCloseTo(1.2);
+    expect(poses[1]).toMatchObject({ x: 9, y: 4, yaw: 0 });
+    expect(poses[1]?.z).toBeCloseTo(14.05);
+    expect(poses[2]).toMatchObject({ z: 9, y: 4 });
+    expect(poses[2]?.x).toBeCloseTo(14.05);
+    expect(poses[2]?.yaw).toBeCloseTo(Math.PI / 2);
+    expect(poses[3]).toMatchObject({ z: 9, y: 4 });
+    expect(poses[3]?.x).toBeCloseTo(3.95);
+    expect(poses[3]?.yaw).toBeCloseTo(-Math.PI / 2);
+    expect(poses[2]?.width).toBeCloseTo(1.2);
+    expect(poses[3]?.height).toBeCloseTo(1.2);
+  });
+
+  it("shrinks every face when the text is wider than the fit limit", () => {
+    for (const pose of wallSignPoses(sign, 10)) {
+      expect(pose.width).toBeCloseTo(8);
+      expect(pose.height).toBeCloseTo(0.8);
+    }
+  });
+
+  it("fits the south face to width and the east face to depth", () => {
+    const narrow = { id: "n", text: "n", x: 0, z: 0, width: 10, depth: 2, height: 8 };
+    const poses = wallSignPoses(narrow, 4);
+    const south = poses.find((pose) => pose.face === "south");
+    const north = poses.find((pose) => pose.face === "north");
+    const east = poses.find((pose) => pose.face === "east");
+    const west = poses.find((pose) => pose.face === "west");
+    expect(south?.width).toBeCloseTo(4.8);
+    expect(south?.height).toBeCloseTo(1.2);
+    expect(north?.width).toBeCloseTo(4.8);
+    expect(north?.height).toBeCloseTo(1.2);
+    expect(east?.width).toBeCloseTo(1.6);
+    expect(east?.height).toBeCloseTo(0.4);
+    expect(west?.width).toBeCloseTo(1.6);
+    expect(west?.height).toBeCloseTo(0.4);
+  });
+});
+
+describe("roofSignPose", () => {
+  const sign = { id: "core", text: "core", x: 4, z: 4, width: 10, depth: 10, height: 8 };
+
+  it("centers a square plaque on the roof", () => {
+    const pose = roofSignPose(sign, 1);
     expect(pose.x).toBe(9);
     expect(pose.z).toBe(9);
-    expect(pose.y).toBeCloseTo(8.9);
-    expect(pose.height).toBeCloseTo(1.2);
-    expect(pose.width).toBeCloseTo(1.2);
+    expect(pose.y).toBeCloseTo(10);
+    expect(pose.width).toBeCloseTo(8);
+    expect(pose.height).toBeCloseTo(8);
   });
 
-  it("widens a long plaque with the text aspect", () => {
-    expect(signSpritePose(sign, 4).width).toBeCloseTo(4.8);
-    expect(signSpritePose(sign, 4).height).toBeCloseTo(1.2);
+  it("shrinks a wide plaque to the roof width", () => {
+    const pose = roofSignPose(sign, 4);
+    expect(pose.x).toBe(9);
+    expect(pose.y).toBeCloseTo(10);
+    expect(pose.z).toBe(9);
+    expect(pose.width).toBeCloseTo(8);
+    expect(pose.height).toBeCloseTo(2);
   });
 
-  it("keeps a short plaque at least as wide as it is tall", () => {
-    expect(signSpritePose(sign, 0.5).width).toBeCloseTo(1.2);
+  it("shrinks a square plaque to the shallower roof side", () => {
+    const pose = roofSignPose({ id: "n", text: "n", x: 4, z: 4, width: 10, depth: 4, height: 8 }, 1);
+    expect(pose.width).toBeCloseTo(3.2);
+    expect(pose.height).toBeCloseTo(3.2);
   });
 });
 

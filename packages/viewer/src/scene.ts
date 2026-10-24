@@ -6,8 +6,10 @@ import {
   CELL_SIZE,
   EYE_HEIGHT,
   NODE_KIND,
+  SIGN_FIT,
   SIGN_GAP,
   SIGN_HEIGHT,
+  SIGN_WALL_OFFSET,
   type EdgeKind,
   type FootprintKind,
   type XyzPoint,
@@ -41,49 +43,135 @@ export interface EdgeMesh {
   points: XzPoint[];
 }
 
+/** Which face a wall plaque sits on. */
+export const SIGN_FACE = {
+  SOUTH: "south",
+  NORTH: "north",
+  EAST: "east",
+  WEST: "west",
+} as const;
+
+/** A block face that receives a wall plaque. */
+export type SignFace = (typeof SIGN_FACE)[keyof typeof SIGN_FACE];
+
 /**
- * Id, display name, and roof point for one block's name sign.
- * The sprite is lifted above this point by `signSpritePose`.
+ * Id, display name, and block box for one name sign.
+ * `x` and `z` are the minimum corner. `height` is the roof.
  */
 export interface NameSign {
   id: string;
   /** The node's original name. Blank names produce no sign. */
   text: string;
-  /** Horizontal center of the block. */
+  /** Minimum x of the block. */
   x: number;
-  /** Roof height. */
-  y: number;
-  /** South edge of the block, the pose's minimum z. */
+  /** Minimum z of the block. South edge. */
   z: number;
-}
-
-/** World position of a name-sign sprite's center, and its width and height. */
-export interface SignSpritePose {
-  x: number;
-  /** Vertical center of the plaque, above the roof point. */
-  y: number;
-  z: number;
-  /** World width. At least `SIGN_HEIGHT`, and wider when the text is wider than it is tall. */
   width: number;
-  /** World height. Always `SIGN_HEIGHT`. */
+  depth: number;
+  /** Roof height. */
   height: number;
 }
 
+/** World center, yaw, and size of one wall plaque. */
+export interface WallSignPose {
+  face: SignFace;
+  x: number;
+  /** Vertical center. Always `EYE_HEIGHT`. */
+  y: number;
+  z: number;
+  /** Yaw, in radians, that turns a +Z-facing plane out toward the street. */
+  yaw: number;
+  width: number;
+  height: number;
+}
+
+/** World center and size of the overhead roof sprite. */
+export interface RoofSignPose {
+  x: number;
+  /** Roof height plus `SIGN_GAP`. */
+  y: number;
+  z: number;
+  width: number;
+  height: number;
+}
+
+function fittedWallSize(faceSpan: number, aspect: number): { width: number; height: number } {
+  const naturalHeight = SIGN_HEIGHT;
+  const naturalWidth = Math.max(SIGN_HEIGHT, SIGN_HEIGHT * aspect);
+  const limit = faceSpan * SIGN_FIT;
+  const scale = naturalWidth > limit ? limit / naturalWidth : 1;
+  return { width: naturalWidth * scale, height: naturalHeight * scale };
+}
+
 /**
- * Places a name-sign sprite above the sign's roof point.
- * The center sits one gap plus half the sign height above the roof, so the plaque's bottom edge is one gap up.
+ * Places one plaque on each face of the block.
+ * South and north are fitted to `width`. East and west are fitted to `depth`.
+ * Order is south, north, east, west.
  *
- * @param sign - Roof point for one block. The text is not read.
- * @param aspect - Canvas width divided by canvas height.
- * @returns World position and size of the sprite.
+ * @param sign - Block box. The text is not read.
+ * @param aspect - Canvas width divided by canvas height. At least 1.
+ * @returns Four wall poses.
  */
-export function signSpritePose(sign: NameSign, aspect: number): SignSpritePose {
+export function wallSignPoses(sign: NameSign, aspect: number): WallSignPose[] {
+  const midX = sign.x + sign.width / 2;
+  const midZ = sign.z + sign.depth / 2;
+  const southNorth = fittedWallSize(sign.width, aspect);
+  const eastWest = fittedWallSize(sign.depth, aspect);
+  return [
+    {
+      face: SIGN_FACE.SOUTH,
+      x: midX,
+      y: EYE_HEIGHT,
+      z: sign.z - SIGN_WALL_OFFSET,
+      yaw: Math.PI,
+      ...southNorth,
+    },
+    {
+      face: SIGN_FACE.NORTH,
+      x: midX,
+      y: EYE_HEIGHT,
+      z: sign.z + sign.depth + SIGN_WALL_OFFSET,
+      yaw: 0,
+      ...southNorth,
+    },
+    {
+      face: SIGN_FACE.EAST,
+      x: sign.x + sign.width + SIGN_WALL_OFFSET,
+      y: EYE_HEIGHT,
+      z: midZ,
+      yaw: Math.PI / 2,
+      ...eastWest,
+    },
+    {
+      face: SIGN_FACE.WEST,
+      x: sign.x - SIGN_WALL_OFFSET,
+      y: EYE_HEIGHT,
+      z: midZ,
+      yaw: -Math.PI / 2,
+      ...eastWest,
+    },
+  ];
+}
+
+/**
+ * Places the overhead sprite at the roof center.
+ * The plaque is the largest rectangle of `aspect` that fits inside `SIGN_FIT` of the roof.
+ * Width runs along world x. Height runs along world z.
+ *
+ * @param sign - Block box. The text is not read.
+ * @param aspect - Canvas width divided by canvas height. At least 1.
+ * @returns Sprite center and world size.
+ */
+export function roofSignPose(sign: NameSign, aspect: number): RoofSignPose {
+  const maxWidth = sign.width * SIGN_FIT;
+  const maxDepth = sign.depth * SIGN_FIT;
+  const height = Math.min(maxDepth, maxWidth / aspect);
   return {
-    x: sign.x,
-    y: sign.y + SIGN_GAP + SIGN_HEIGHT / 2,
-    z: sign.z,
-    width: Math.max(SIGN_HEIGHT, SIGN_HEIGHT * aspect),
-    height: SIGN_HEIGHT,
+    x: sign.x + sign.width / 2,
+    y: sign.height + SIGN_GAP,
+    z: sign.z + sign.depth / 2,
+    width: height * aspect,
+    height,
   };
 }
 
@@ -131,9 +219,11 @@ function nameSign(node: Node): NameSign | null {
   return {
     id: node.id,
     text: node.name,
-    x: horizontalCenter(node.pose.x, node.pose.width),
-    y: node.pose.height,
+    x: node.pose.x,
     z: node.pose.z,
+    width: node.pose.width,
+    depth: node.pose.depth,
+    height: node.pose.height,
   };
 }
 
