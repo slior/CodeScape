@@ -19,7 +19,7 @@ Read a plan, list the design decisions in it, and wait. Write an ADR only for a 
 | Plan file | Yes | Path to one plan. If it is missing, ask for it and stop. |
 | Decisions | No | The user may name decisions up front. Still show the full list and wait, unless they already picked from a list you showed in this conversation. |
 
-Do not commit. Do not create a README or an index.
+Do not commit. Do not create a README. When you add a record, add its row to `docs/adrs/index.md`.
 
 ## Steps
 
@@ -197,7 +197,9 @@ Fix the file before reporting it.
 
 ### 8. Report the paths
 
-List the new files in number order, each with its title and its Depends on ids. Say which skipped decisions were folded into which file. Do not commit.
+List the new files in number order, each with its title and its Depends on ids. Say which skipped decisions were folded into which file.
+
+Add one row per new file to `docs/adrs/index.md`, in number order. The row has the linked title, the accepted date, a one-sentence decision, and links to the records it depends on. Use `none` when there is no earlier ADR. Do not commit.
 
 ## Example of Status
 
